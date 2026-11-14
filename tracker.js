@@ -27,6 +27,7 @@ const unit = () => store.get(K_UNIT, 'kcal');
 const eVal = kcal => Math.round(unit() === 'kj' ? kcal * KJ : kcal);
 const eUnit = () => unit() === 'kj' ? 'kJ' : 'kcal';
 const eFmt = kcal => `${eVal(kcal).toLocaleString('en-AU')} ${eUnit()}`;
+const LOC = () => ({es: 'es-ES', zh: 'zh-CN', ja: 'ja-JP', ko: 'ko-KR', vi: 'vi-VN'})[window.FSI18N && FSI18N.lang] || 'en-AU';   // dates in the app's language
 const toast = msg => { const t = $('#toast'); if (!t) return; t.textContent = msg; t.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), 1800); };
 const mealNow = () => { const h = new Date().getHours(); return h < 10 ? 'breakfast' : h < 14 ? 'lunch' : h >= 17 && h < 21 ? 'dinner' : 'snack'; };
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -212,11 +213,12 @@ function dayScore(list, g){
   ];
   const bal = parts.reduce((a, x) => a + x.v, 0) / parts.length * 100;
   const alcPen = alcPenalty(t.alc);
-  const score = Math.max(0, Math.round(quality != null ? quality * .6 + bal * .4 : bal) - alcPen);
+  const ctb = contributors(list).filter(c => c.k !== 'alc').reduce((a, c) => a + c.pts, 0);
+  const score = Math.max(0, Math.min(100, Math.round((quality != null ? quality * .6 + bal * .4 : bal) + ctb - alcPen)));
   const tips = parts.filter(x => x.v < .7).sort((a, b) => a.v - b.v).slice(0, 2).map(x => x.tip);
   if (alcPen) tips.unshift(`Alcohol took ${alcPen} points off — ${r1(t.alc)} standard drink${Math.abs(t.alc - 1) < .05 ? '' : 's'}. Alcohol-free days help most.`);
   if (quality != null && quality < 50) tips.unshift('Most of what you ate today scores low — tap a food to see its score and healthier swaps.');
-  return {score, alc: t.alc || 0, alcPen, quality: quality != null ? Math.round(quality) : null, balance: Math.round(bal), parts, tips: tips.slice(0, 3), scoredN: scored.length, n: list.length};
+  return {score, alc: t.alc || 0, alcPen, ctb: Math.round(ctb), quality: quality != null ? Math.round(quality) : null, balance: Math.round(bal), parts, tips: tips.slice(0, 3), scoredN: scored.length, n: list.length};
 }
 function healthCard(k){
   const list = dayEntries(k), d = dayScore(list);
@@ -229,14 +231,14 @@ function healthCard(k){
         <circle cx="42" cy="42" r="34" fill="none" stroke="${c}" stroke-width="9" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - d.score / 100)}" transform="rotate(-90 42 42)"/></svg>
         <b>${d.score}</b></div>
       <div><span class="grade" style="background:${c}">${scoreWord(d.score)}</span>
-        <p class="muted" style="margin-top:6px">${d.quality != null ? `Food quality ${d.quality}/100 · ` : ''}Balance ${d.balance}/100${d.alcPen ? ` · <b style="color:var(--g1)">Alcohol −${d.alcPen}</b>` : ''}</p>
+        <p class="muted" style="margin-top:6px">${d.quality != null ? `Food quality ${d.quality}/100 · ` : ''}Balance ${d.balance}/100${d.ctb ? ` · Food groups ${ptsTxt(d.ctb)}` : ''}${d.alcPen ? ` · <b style="color:var(--g1)">Alcohol −${d.alcPen}</b>` : ''}</p>
         <p class="muted">${d.scoredN === d.n ? `All ${d.n} food${d.n > 1 ? 's' : ''} scored.` : `${d.scoredN} of ${d.n} foods have a product score — Quick adds only count towards balance.`}</p></div>
     </div>
     ${d.parts.map(x => `<div class="calbal"><div class="top"><span>${x.name}</span><span>${esc(x.val)}</span></div><div class="bar"><i style="width:${Math.max(3, x.v * 100)}%;background:${scoreCol(x.v * 100)}"></i></div></div>`).join('')}
     ${d.tips.length ? `<ul class="plain caltips">${d.tips.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
     ${k === today() ? '<p class="muted" style="margin-top:8px">Protein and fibre fill up as you log the rest of the day.</p>' : ''}
     <details style="margin-top:8px"><summary class="muted" style="cursor:pointer">How the day score works</summary>
-      <p class="muted" style="margin-top:6px">60% is food quality — the average HealthierSlop score of what you ate, weighted by calories, so a big meal counts more than a snack. 40% is balance: reaching your protein and fibre targets, and keeping sugars under 50g, saturated fat under 24g and sodium under 2,000mg. Alcohol then takes about 4 points off per standard drink (10 more past 4 drinks). General guidance, not medical advice.</p></details>
+      <p class="muted" style="margin-top:6px">60% is food quality — the average HealthierSlop score of what you ate, weighted by calories, so a big meal counts more than a snack. 40% is balance: reaching your protein and fibre targets, and keeping sugars under 50g, saturated fat under 24g and sodium under 2,000mg. Then food quality contributors add points for vegetables, whole grains, healthy oils, fruit, nuts/legumes and omega-3s, and take points off for processed meat, excess sodium and sugar, and alcohol (about 4 points per standard drink, 10 more past 4). General guidance, not medical advice.</p></details>
   </div>`;
 }
 
@@ -280,7 +282,7 @@ function setStatus(k, s){ const m = statusMap(); if (s === 'train') delete m[k];
 function openStatus(k, after){
   const cur = statusOf(k);
   sheet(`<h2>What kind of day ${k === today() ? 'is today' : 'was it'}?</h2>
-    <p class="muted">${esc(fromKey(k).toLocaleDateString('en-AU', {weekday: 'long', day: 'numeric', month: 'long'}))}. Shown on your calendar.</p>
+    <p class="muted">${esc(fromKey(k).toLocaleDateString(LOC(), {weekday: 'long', day: 'numeric', month: 'long'}))}. Shown on your calendar.</p>
     <div class="stlist">${STATUS_ORDER.map(s => `<button class="stopt${s === cur ? ' on' : ''}" data-s="${s}">
       <span class="stic" style="background:color-mix(in srgb, ${STATUS[s].col} 16%, transparent)">${stIcon(s, 22)}</span>
       <span class="t"><b>${STATUS[s].name}</b><span>${STATUS[s].desc}</span></span>
@@ -295,7 +297,7 @@ function openStatus(k, after){
 function dayLabel(k){
   if (k === today()) return 'Today';
   if (k === addDays(today(), -1)) return 'Yesterday';
-  return fromKey(k).toLocaleDateString('en-AU', {weekday: 'long'});
+  return fromKey(k).toLocaleDateString(LOC(), {weekday: 'long'});
 }
 const CHEV_L = '<svg viewBox="0 0 24 24"><path d="m15 5-7 7 7 7"/></svg>', CHEV_R = '<svg viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg>';
 const CHEV_D = '<svg class="cd" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>', ARROW = '<svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
@@ -345,7 +347,7 @@ function render(){
     </div>
     <div class="rbtns"><button class="rb" id="calPrev" aria-label="Previous day">${CHEV_L}</button><button class="rb" id="calNext" aria-label="Next day" ${day >= today() ? 'disabled' : ''}>${CHEV_R}</button></div>
   </div>
-  <p class="tdsub">${fromKey(day).toLocaleDateString('en-AU', {weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'})}</p>
+  <p class="tdsub">${fromKey(day).toLocaleDateString(LOC(), {weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'})}</p>
 
   ${g.isDefault ? `<div class="card calnudge"><div><b>Set your daily target</b><p class="muted">Using a general ${eFmt(DEFAULT_KCAL)} for now. Work out yours from your height, weight and activity.</p></div>
     <button class="btn ghost" id="calSetup">Set target</button></div>` : ''}
@@ -358,8 +360,9 @@ function render(){
       <div class="gch"><span class="tlab" style="top:calc(${tY}% - 15px)">${kfmt(g.kcal)}</span><i class="tdash" style="top:${tY}%"></i>
         ${wk.map(d => `<span class="b${d.k === day ? ' on' : ''}" style="height:${Math.max(d.kcal ? 6 : 3, d.kcal / wmax * 100)}%"></span>`).join('')}</div>
     </button>
-    <div class="gtiles">${M.map(([k, n, v, tg, c]) => { const lf = tg - v; return `<button class="gt" data-m="${k}"><div class="gn"><b>${n}</b>${miniRing(tg ? v / tg : 0, c)}</div>
-      <span>${Math.round(Math.abs(lf))}g ${lf >= 0 ? 'left' : 'over'}</span></button>`; }).join('')}</div>
+    <div class="gtiles">${M.map(([k, n, v, tg, c]) => { const lf = tg - v; return `<button class="gt" data-m="${k}"><b>${n}</b>
+      <span class="gvt">${Math.round(Math.abs(lf))}g ${lf >= 0 ? 'left' : 'over'}</span>
+      <i class="gbar"><em style="width:${Math.min(100, tg ? v / tg * 100 : 0)}%;background:${lf < 0 ? 'var(--g2)' : c}"></em></i></button>`; }).join('')}</div>
   </div>
 
   <button class="scanbar" id="calScanHero"><span class="sbi"><svg viewBox="0 0 24 24"><path d="M4 8V5h3M17 5h3v3M20 16v3h-3M7 19H4v-3M8 9v6M11 9v6M14 9v6M17 9v6"/></svg></span>
@@ -380,9 +383,10 @@ function render(){
   </div>
 
   ${healthCard(day)}
+  ${contribCard(day)}
 
   ${MEALS.map(([m, name]) => {
-    const items = list.filter(e => e.meal === m), s = sum(items);
+    const items = list.filter(e => e.meal === m || (m === 'snack' && !MEAL_NAME[e.meal])), s = sum(items);
     return `<div class="card calmeal">
       <div class="mh"><h2>${name}</h2><span>${items.length ? eFmt(s.kcal) : ''}</span></div>
       ${items.map(e => `<div class="cale" data-id="${esc(e.id)}" role="button" tabindex="0">
@@ -416,6 +420,7 @@ function render(){
   el.querySelectorAll('.gt').forEach(b => b.onclick = openMacros);
   bindWater(day, render);
   bindDrinks(day, render);
+  bindContrib(day, render);
   $('#calWater').onclick = () => openWaterGoal(render);
   $('#calCaf').onclick = () => openCafLimit(render);
   el.querySelectorAll('#ndUnit button').forEach(b => b.onclick = () => { ndUnit = b.dataset.u; render(); });
@@ -431,7 +436,7 @@ function render(){
 }
 
 // ---------------- calendar ----------------
-function monthName(mk){ const [y, m] = mk.split('-').map(Number); return new Date(y, m - 1, 1).toLocaleDateString('en-AU', {month: 'long', year: 'numeric'}); }
+function monthName(mk){ const [y, m] = mk.split('-').map(Number); return new Date(y, m - 1, 1).toLocaleDateString(LOC(), {month: 'long', year: 'numeric'}); }
 function renderMonth(){
   const el = $('#v-month'); if (!el) return;
   const [y, m] = month.split('-').map(Number), first = new Date(y, m - 1, 1), days = new Date(y, m, 0).getDate();
@@ -453,7 +458,7 @@ function renderMonth(){
     const ringH = off ? tickRing(1, 'var(--st-off)', `<g transform="translate(13 12.5) scale(.6)" fill="none" stroke="var(--st-off)" stroke-width="2.6" stroke-linecap="round">${STATUS.off.icon}</g>`)
       : ds ? tickRing(ds.score / 100, scoreCol(ds.score), `<text x="20" y="24" text-anchor="middle" class="rs">${ds.score}</text>`) : tickRing(0, '');
     cells.push(`<button class="mc${k === sel ? ' on' : ''}${k === tk ? ' today' : ''}${future ? ' fut' : ''}" data-k="${k}" ${future ? 'disabled' : ''}
-      aria-label="${esc(fromKey(k).toLocaleDateString('en-AU', {day: 'numeric', month: 'long'}))}${ds ? ', health score ' + ds.score : ''}${showSt ? ', ' + STATUS[s || 'train'].name : ''}">
+      aria-label="${esc(fromKey(k).toLocaleDateString(LOC(), {day: 'numeric', month: 'long'}))}${ds ? ', health score ' + ds.score : ''}${showSt ? ', ' + STATUS[s || 'train'].name : ''}">
       ${ringH}<span class="d">${i + 1}</span><span class="si">${showSt ? stIcon(s || 'train', 14) : ''}</span></button>`);
   });
   const canNext = month < tk.slice(0, 7);
@@ -462,6 +467,7 @@ function renderMonth(){
     <div class="tdl"><button class="tdate" id="mPick">${esc(monthName(month))}${CHEV_D}</button></div>
     <div class="rbtns"><button class="rb" id="mPrev" aria-label="Previous month">${CHEV_L}</button><button class="rb" id="mNext" aria-label="Next month" ${canNext ? '' : 'disabled'}>${CHEV_R}</button></div>
   </div>
+  ${tipCard('month', 'Each ring is that day\'s <b>health score</b> — green is best. The icon underneath is the day type. Tap any day to see what you ate.')}
   <div class="card mcard">
     <div class="mgrid mhead">${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(x => `<span>${x}</span>`).join('')}</div>
     <div class="mgrid">${cells.join('')}</div>
@@ -477,6 +483,7 @@ function renderMonth(){
     <div class="ms4">${STATUS_ORDER.map(s => `<div style="--sc:${STATUS[s].col}">${stIcon(s, 18)}<b>${counts[s]}</b><span>${STATUS[s].name}</span></div>`).join('')}</div>
   </div>
   <div id="mDay">${dayDetail(sel)}</div>`;
+  bindTips(el);
   const go = mk => { month = mk; renderMonth(); };
   $('#mPrev').onclick = () => { const d = new Date(y, m - 2, 1); go(`${d.getFullYear()}-${pad(d.getMonth() + 1)}`); };
   $('#mNext').onclick = () => { if (!canNext) return; const d = new Date(y, m, 1); go(`${d.getFullYear()}-${pad(d.getMonth() + 1)}`); };
@@ -501,7 +508,7 @@ function renderMonth(){
 }
 function dayDetail(k){
   const list = dayEntries(k), t = sum(list), g = goal(), st = statusOf(k);
-  const head = `<div class="ddh"><h3>${esc(fromKey(k).toLocaleDateString('en-AU', {weekday: 'long', day: 'numeric', month: 'long'}))}</h3>
+  const head = `<div class="ddh"><h3>${esc(fromKey(k).toLocaleDateString(LOC(), {weekday: 'long', day: 'numeric', month: 'long'}))}</h3>
     <button class="stbtn" id="mStatus" style="--sc:${STATUS[st].col}">${stIcon(st, 15)}<span>${STATUS[st].name}</span></button></div>`;
   if (!list.length) return head + `<div class="card"><p class="muted">Nothing recorded on this day.${waterTotal(k) ? ` 💧 ${fmtL(waterTotal(k))} of water.` : ''}</p>
     <button class="btn ghost" id="mEdit" style="margin-top:10px">${k === today() ? 'Log food for today' : 'Add food to this day'}</button></div>`;
@@ -509,16 +516,17 @@ function dayDetail(k){
     ${waterTotal(k) || (t.micro && t.micro.caffeine) || t.alc ? `<p class="wline">${[waterTotal(k) ? `💧 ${fmtL(waterTotal(k))} water` : '', t.micro && t.micro.caffeine ? `☕ ${Math.round(t.micro.caffeine)} mg caffeine` : '', t.alc ? `🍺 ${r1(t.alc)} standard drink${Math.abs(t.alc - 1) < .05 ? '' : 's'}` : ''].filter(Boolean).join(' · ')}</p>` : ''}
     <div class="mtot"><div><b>${eFmt(t.kcal)}</b><span>of ${eFmt(g.kcal)}</span></div>
       <div><b style="color:var(--pro)">${Math.round(t.p)}g</b><span>protein</span></div><div><b style="color:var(--carb)">${Math.round(t.c)}g</b><span>carbs</span></div><div><b style="color:var(--fat)">${Math.round(t.f)}g</b><span>fat</span></div></div>
-    ${MEALS.map(([m, name]) => { const items = list.filter(e => e.meal === m); if (!items.length) return '';
+    ${MEALS.map(([m, name]) => { const items = list.filter(e => e.meal === m || (m === 'snack' && !MEAL_NAME[e.meal])); if (!items.length) return '';
       return `<div class="mmeal"><div class="mh"><b>${name}</b><span>${eFmt(sum(items).kcal)}</span></div>
         ${items.map(e => `<div class="cale ro"><div class="t"><b class="notr">${esc(e.name)}</b><span class="notr">${esc([e.brand, qtyText(e)].filter(Boolean).join(' · '))}</span></div>
           ${typeof e.score === 'number' ? `<span class="fsc" style="background:${scoreCol(e.score)}">${e.score}</span>` : ''}
           <div class="k">${eVal(e.kcal).toLocaleString('en-AU')}</div></div>`).join('')}</div>`; }).join('')}
     <details class="nmore" style="margin-top:12px"><summary>Further information — all nutrients</summary>${macroRows(t)}${microRows(Object.assign({n: list.length}, t), 'day')}</details>
     <div class="row" style="margin-top:12px"><button class="btn plain" id="mEdit">Edit this day</button>${k !== today() ? '<button class="btn plain" id="mCopy">Add to today</button>' : ''}</div>
-  </div>${st === 'off' ? '' : healthCard(k)}`;
+  </div>${st === 'off' ? '' : healthCard(k) + contribCard(k)}`;
 }
 function bindDetail(){
+  bindContrib(sel, renderMonth);
   const e = $('#mEdit'); if (e) e.onclick = () => { day = sel; window.FSApp && FSApp.show('cal'); };
   const s = $('#mStatus'); if (s) s.onclick = () => openStatus(sel, renderMonth);
   const c = $('#mCopy'); if (c) c.onclick = () => {
@@ -810,7 +818,7 @@ function recipeFood(r){                 // a recipe as something that can be log
   const t = recipeTotals(r), n = Math.max(1, r.serves || 1), fixed = {micro: {}};
   NK.forEach(k => fixed[k] = t[k] / n);
   for (const m in t.micro) fixed.micro[m] = t.micro[m] / n;
-  return {name: r.name, brand: 'Recipe', code: '', recipeId: r.id, fixed, per100: null, score: t.score, u: 'g'};
+  return {name: r.name, brand: 'Recipe', code: '', recipeId: r.id, fixed, per100: null, score: t.score, u: 'g', grp: recipeGroups(r)};
 }
 function ingText(it){ return it.qunit === 'item' ? (it.qty === 1 ? '1 serve' : `${r1(it.qty)} serves`) : qtyText(it.food && Object.assign({}, it.food, {qty: it.qty, qunit: it.qunit})); }
 
@@ -826,6 +834,7 @@ function renderRecipes(){
   <div class="tdhead"><div class="tdl"><h1 class="vtitle">Recipes</h1></div>
     <div class="rbtns"><button class="rb rbp" id="rNew" aria-label="New recipe">${ICON_PLUS}</button></div></div>
   <p class="tdsub">Save meals you make often, then log them in one tap or let them add themselves.</p>
+  ${tipCard('recipes', 'Tap <b>+</b> to build a recipe from scanned foods, fruit & veg or your own numbers. Star your favourites, and open a recipe to <b>make it a habit</b> so it adds itself.')}
   <div class="useg wide" id="rTabs"><button data-t="all" class="${recTab === 'all' ? 'on' : ''}">All</button><button data-t="fav" class="${recTab === 'fav' ? 'on' : ''}">Favourites</button><button data-t="hab" class="${recTab === 'hab' ? 'on' : ''}">Habits${H.length ? ` · ${H.length}` : ''}</button></div>
   ${recTab === 'hab' ? habitsList(H) : list.length ? `<div class="rlist">${list.map(r => { const f = recipeFood(r), h = habitFor(r.id);
     return `<div class="card rcard" data-id="${esc(r.id)}" role="button" tabindex="0">
@@ -837,6 +846,7 @@ function renderRecipes(){
     </div>`; }).join('')}</div>`
     : `<div class="card rempty"><b>${recTab === 'fav' ? 'No favourites yet' : 'No recipes yet'}</b><p class="muted">${recTab === 'fav' ? 'Tap the star on a recipe to keep it here.' : 'Build one from foods you\'ve scanned, fruit & veg, or your own numbers. HealthierSlop works out the calories, macros and health score per serve.'}</p>
        ${recTab === 'fav' ? '' : '<button class="btn primary" id="rNew2" style="margin-top:12px">Create a recipe</button>'}</div>`}`;
+  bindTips(el);
   const nw = () => openRecipeEditor(null);
   $('#rNew').onclick = nw; const n2 = $('#rNew2'); if (n2) n2.onclick = nw;
   el.querySelectorAll('#rTabs button').forEach(b => b.onclick = () => { recTab = b.dataset.t; renderRecipes(); });
@@ -983,7 +993,7 @@ function pickFresh(){
         : `<p class="empty">${q.value.trim().length < 3 ? 'Type at least 3 letters.' : 'No match in the built-in list — try Scan or search, or Type it in.'}</p>`;
       out.querySelectorAll('.pl').forEach(el => el.onclick = () => {
         const p = FSProduce.build(el.dataset.c), A = window.FSApp && FSApp.analyse ? FSApp.analyse(p) : null;
-        const food = foodFrom({name: p.product_name, brand: '', code: p.code, score: A ? A.score : null, N: A ? A.N : null, nutriments: p.nutriments, produce: true});
+        const food = foodFrom({name: p.product_name, brand: '', code: p.code, score: A ? A.score : null, N: A ? A.N : null, nutriments: p.nutriments, produce: true, cats: p.categories_tags});
         if (food) ingAmount(food, 100, 'g');
       });
     };
@@ -1191,7 +1201,7 @@ function drinksCard(k){
   const list = dayEntries(k), t = sum(list), caf = (t.micro && t.micro.caffeine) || 0, lim = cafLimit();
   const sd = t.alc || 0, wk = weekAlc(k), pen = alcPenalty(sd), last = k === today() ? lastCaffeine(list) : null;
   const cafCol = caf > lim ? 'var(--g1)' : caf > lim * .75 ? 'var(--g3)' : 'var(--caf)';
-  const lateNote = last && last.getHours() >= 14 ? ` Last one at ${last.toLocaleTimeString('en-AU', {hour: 'numeric', minute: '2-digit'})} — caffeine can affect sleep for 6+ hours.` : '';
+  const lateNote = last && last.getHours() >= 14 ? ` Last one at ${last.toLocaleTimeString(LOC(), {hour: 'numeric', minute: '2-digit'})} — caffeine can affect sleep for 6+ hours.` : '';
   return `<div class="card drinks">
     <div class="ch"><h2>Caffeine & alcohol</h2><button class="ar" id="dkSet" aria-label="Caffeine limit and alcohol guidelines">${ARROW}</button></div>
     <div class="dk">
@@ -1266,6 +1276,144 @@ function openCafLimit(redraw){
   });
 }
 
+// ---------------- food quality contributors ----------------
+// Food groups that add to (or take away from) the day's health score, on top of food quality and balance.
+const K_CONTRIB_OFF = 'fs_contrib_off', K_CONTRIB_OPEN = 'fs_contrib_open';
+// target = serves for the full positive points; serve = grams in one serve
+const CONTRIB = [
+  {k: 'veg', name: 'Vegetables', emoji: '🥬', pos: true, max: 5, target: 5, serve: 75, guide: '1 serve = 75g (½ cup cooked veg or 1 cup salad). Aim for 5 a day.', tip: 'Add a salad or a cup of cooked veg to your next meal.'},
+  {k: 'wg', name: 'Whole grains', emoji: '🌾', pos: true, max: 4, target: 3, serve: 40, guide: '1 serve = 40g, e.g. a slice of wholemeal bread, ⅓ cup oats or ½ cup brown rice.', tip: 'Swap white bread, rice or pasta for wholegrain versions.'},
+  {k: 'oil', name: 'Healthy oils', emoji: '🥑', pos: true, max: 3, target: 2, serve: 10, guide: '1 serve = 10ml olive oil or ¼ avocado (50g).', tip: 'Cook with extra virgin olive oil or add avocado.'},
+  {k: 'fruit', name: 'Fruit', emoji: '🍓', pos: true, max: 4, target: 2, serve: 150, guide: '1 serve = 150g, e.g. a medium apple or banana. Aim for 2 a day. Juice doesn\'t count.', tip: 'Have a piece of whole fruit as a snack.'},
+  {k: 'nuts', name: 'Nuts/Legumes', emoji: '🥜', pos: true, max: 4, target: 1, serve: 30, guide: '1 serve = 30g nuts or seeds, or 75g beans, lentils, chickpeas or tofu.', tip: 'A small handful of nuts or a scoop of hummus counts.'},
+  {k: 'omega', name: 'Omega-3s', emoji: '🐟', pos: true, max: 3, target: 1, serve: 100, guide: '1 serve = 100g oily fish like salmon, sardines or mackerel (or foods that list omega-3s).', tip: 'Oily fish 2–3 times a week is a great source.'},
+  {k: 'na', name: 'Excess sodium', emoji: '🧂', pos: false, max: 4, limit: 2000, unitL: 'mg', guide: 'Only counts past 2,000mg of sodium (5g of salt) in a day.', tip: 'Processed meats, sauces, chips and takeaway are the usual sources.'},
+  {k: 'proc', name: 'Processed meat', emoji: '🌭', pos: false, max: 6, unitL: 'g', guide: 'Bacon, ham, salami, sausages and other cured meats. Any amount counts — they\'re linked to bowel cancer.', tip: 'Swap deli meats for chicken, eggs, tuna or hummus.'},
+  {k: 'alc', name: 'Alcohol', emoji: '🍷', pos: false, max: 40, limit: ALC_DAY_MAX, unitL: ' std drinks', guide: 'About 4 points per standard drink, plus 10 more past 4 in a day.', tip: 'Alcohol-free days help most.'},
+  {k: 'sugar', name: 'Excess sugar', emoji: '🍰', pos: false, max: 6, limit: 50, unitL: 'g', guide: 'Only counts past 50g of sugars in a day (added sugars where the label lists them).', tip: 'Swap soft drinks and sweets for fruit, nuts or water.'}
+];
+const contribOff = () => store.get(K_CONTRIB_OFF, []);
+// which group a food belongs to → {k, f} (f converts grams to "serve grams", e.g. avocado → oil)
+function classify(food){
+  if (!food || food.alc || (food.fixed && food.fixed.alc)) return null;
+  const name = String(food.name || '').toLowerCase(), cats = (food.cats || []).join(' ').toLowerCase();
+  const first = String(food.ing || '').toLowerCase().split(/[,(;]/)[0];
+  const t = `${name} ${cats} ${first}`;
+  if (/\bvegan\b|plant[- ]based|meat[- ]free|vegetarian/.test(t) && /mince|sausage|burger|bacon|meat/.test(t)) return /tofu|tempeh|bean|lentil|pea protein|soy/.test(t) ? {k: 'nuts', f: .4} : null;
+  if (/\b(bacon|ham|hams|salami|sausages?|pepperoni|hot ?dogs?|frankfurt\w*|chorizo|prosciutto|kabana|cabanossi|devon|luncheon|corned beef|jerky|pastrami|mortadella|processed-meats|cured-meats|deli meat)\b/.test(t)) return {k: 'proc', f: 1};
+  if (/\b(salmon|sardines?|mackerel|tuna|trout|anchov\w*|herring|barramundi|fish|seafood|en:fishes|fatty-fishes)\b/.test(t) && !/fish sauce|fish oil capsule/.test(t)) return {k: 'omega', f: /salmon|sardine|mackerel|anchov|herring|trout/.test(t) ? 1 : .5};
+  if (/olive[- ]oil|avocado oil|extra[- ]virgin|en:olive-oils|rapeseed oil|canola oil/.test(t)) return {k: 'oil', f: 1};
+  if (/\bavocado/.test(t)) return {k: 'oil', f: .2};
+  if (/jelly ?beans?|coffee|cocoa|vanilla bean|green beans?/.test(t)){ /* not legumes */ }
+  else if (/\b(lentils?|chickpeas?|beans|legumes?|hummus|houmous|tofu|tempeh|edamame|split peas?|en:legumes)\b/.test(t)) return {k: 'nuts', f: .4};
+  if (/\b(almonds?|walnuts?|cashews?|pistachios?|hazelnuts?|macadamias?|pecans?|brazil nuts?|peanuts?|mixed nuts|nut butter|peanut butter|chia|linseeds?|flaxseeds?|pumpkin seeds?|sunflower seeds?|seeds|en:nuts|en:seeds)\b/.test(t) && !/chocolate|bar\b|biscuit|cookie/.test(t)) return {k: 'nuts', f: 1};
+  if (/oat milk|oat drink|oat ?latte/.test(t)) return null;
+  if (/whole ?grain|wholemeal|whole ?wheat|rolled oats|\boats?\b|oatmeal|porridge|brown rice|quinoa|\brye\b|barley|buckwheat|bulgur|freekeh|en:whole-grain|muesli|weet-?bix/.test(t) && !/cake|biscuit|cookie|bar\b/.test(t)) return {k: 'wg', f: 1};
+  if (/chips|crisps|fries|vegetable oil|juice|cordial|soup mix|stock/.test(t)) return null;
+  if (/en:(fresh-)?vegetables|en:salads|frozen-vegetables|\b(vegetables?|veggies?|salad|spinach|broccoli|carrots?|tomato(es)?|lettuce|kale|cabbage|capsicum|zucchini|cucumbers?|onions?|mushrooms?|pumpkin|sweet potato|potato(es)?|cauliflower|peas|corn|beetroot|celery|asparagus|eggplant|bok choy|rocket|silverbeet|leek|sprouts?|green beans?)\b/.test(t)) return {k: 'veg', f: 1};
+  if (/jam|jelly|lolly|lollies|flavou?r|yogh?urt|muffin|cake|drink|soft drink|bar\b|pie\b|tart/.test(t)) return null;
+  if (/en:(fresh-)?fruits|en:dried-fruits|\b(apples?|bananas?|oranges?|mandarins?|pears?|grapes?|berr\w+|strawberr\w+|blueberr\w+|raspberr\w+|mango(es)?|pineapple|kiwi\w*|peach(es)?|plums?|apricots?|cherr\w+|melon|watermelon|nectarines?|passionfruit|papaya|figs?|dates|raisins|sultanas|fruit salad|fruit)\b/.test(t)) return {k: 'fruit', f: 1};
+  return null;
+}
+function foodGrams(food, qty, qunit){
+  if (qunit === 'g') return qty;
+  if (qunit === 'serve') return qty * (food.serveG || 0);
+  if (qunit === 'pack') return qty * (food.packG || 0);
+  return null;                                      // 'item' — unknown weight
+}
+function entryGroups(e){                            // {groupKey: serve-equivalent grams} for one logged entry
+  const out = {};
+  if (e.grp){ for (const k in e.grp) out[k] = e.grp[k] * (e.qty || 1); return out; }   // recipes: stored per serve
+  const c = classify(e); if (!c) return out;
+  const C = CONTRIB.find(x => x.k === c.k); if (!C) return out;
+  let g = foodGrams(e, e.qty || 1, e.qunit);
+  if (g == null) g = (C.serve || 100) / (c.f || 1) * (e.qty || 1);    // a quick add / serving → assume one typical serve
+  out[c.k] = g * c.f;
+  return out;
+}
+function recipeGroups(r){                           // per serve
+  const out = {}, n = Math.max(1, r.serves || 1);
+  (r.items || []).forEach(it => { const g = entryGroups(Object.assign({}, it.food, {qty: it.qty, qunit: it.qunit})); for (const k in g) out[k] = (out[k] || 0) + g[k] / n; });
+  return out;
+}
+function contributors(list){
+  const t = sum(list), G = {}, who = {};
+  list.forEach(e => { const g = entryGroups(e); for (const k in g){ G[k] = (G[k] || 0) + g[k]; (who[k] = who[k] || []).push({name: e.name, g: g[k]}); } });
+  const omega3 = (t.micro && t.micro['omega-3-fat']) || 0;
+  const addSug = t.micro && t.micro['added-sugars'] > 0 ? t.micro['added-sugars'] : null;
+  const sug = addSug != null ? addSug : t.sugar;
+  const off = contribOff();
+  return CONTRIB.filter(c => !off.includes(c.k)).map(c => {
+    let pts = 0, fill = 0, tick = null, amt = '', val = 0;
+    if (c.pos){
+      let serves = (G[c.k] || 0) / c.serve;
+      if (c.k === 'omega') serves += omega3 / 0.5;
+      pts = Math.min(c.max, serves / c.target * c.max); fill = Math.min(1, serves / c.target); val = serves;
+      amt = `${r1(serves)} of ${c.target} serve${c.target > 1 ? 's' : ''}`;
+    } else if (c.k === 'proc'){
+      val = G.proc || 0; pts = -Math.min(c.max, val / 30 * 2); fill = Math.min(1, val / 90); amt = `${Math.round(val)}g`;
+    } else if (c.k === 'na'){
+      val = t.na; pts = -Math.min(c.max, Math.max(0, (val - c.limit) / 250)); fill = Math.min(1, val / (c.limit * 2)); tick = .5; amt = `${Math.round(val).toLocaleString('en-AU')}mg (limit 2,000mg)`;
+    } else if (c.k === 'sugar'){
+      val = sug; pts = -Math.min(c.max, Math.max(0, (val - c.limit) / 10)); fill = Math.min(1, val / (c.limit * 2)); tick = .5; amt = `${Math.round(val)}g ${addSug != null ? 'added ' : ''}(limit 50g)`;
+    } else if (c.k === 'alc'){
+      val = t.alc || 0; pts = -alcPenalty(val); fill = Math.min(1, val / (ALC_DAY_MAX * 2)); tick = .5; amt = `${r1(val)} standard drink${Math.abs(val - 1) < .05 ? '' : 's'}`;
+    }
+    return Object.assign({}, c, {pts: Math.round(pts * 10) / 10, fill, tick, amt, val, foods: (who[c.k] || []).sort((a, b) => b.g - a.g)});
+  });
+}
+const ptsTxt = (p, pos) => { const r = Math.round(p); return r > 0 ? `+${r}` : r < 0 ? `−${-r}` : (pos === false ? '−0' : '+0'); };
+let contribAll = store.get(K_CONTRIB_OPEN, true);
+function contribCard(k){
+  const list = dayEntries(k); if (statusOf(k) === 'off') return '';
+  const C = contributors(list), active = C.filter(c => Math.round(c.pts) !== 0);
+  const show = contribAll ? C : active;
+  const pos = C.filter(c => c.pos).reduce((a, c) => a + c.pts, 0), neg = C.filter(c => !c.pos).reduce((a, c) => a + c.pts, 0);
+  return `<div class="ctb" id="ctb">
+    <div class="ctbh"><h3>Food quality contributors</h3><button class="ib" id="ctbInfo" aria-label="How contributors work"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.5v.5"/></svg></button>
+      <span class="ctbsum">${list.length ? `<b style="color:var(--g5)">${ptsTxt(pos)}</b> <b style="color:var(--g2)">${ptsTxt(neg, false)}</b>` : ''}</span></div>
+    ${show.length ? show.map(c => `<button class="ctr" data-k="${c.k}">
+      <span class="ce">${c.emoji}</span><span class="cn">${c.name}</span>
+      <span class="cbar"><i class="${c.pos ? 'p' : Math.round(c.pts) < 0 ? 'n' : 'z'}" style="width:${Math.max(0, c.fill * 100)}%"></i><span class="cdot" style="left:${Math.max(0, c.fill * 100)}%"></span>${c.tick != null ? `<span class="ctick" style="left:${c.tick * 100}%"></span>` : ''}</span>
+      <span class="cp ${Math.round(c.pts) > 0 ? 'p' : Math.round(c.pts) < 0 ? 'n' : ''}">${ptsTxt(c.pts, c.pos)}</span><span class="ca">${ARROW}</span></button>`).join('')
+      : `<div class="ctr empty">Nothing adding or taking away points yet.</div>`}
+    <button class="ctog" id="ctbTog" aria-label="${contribAll ? 'Show only active contributors' : 'Show all contributors'}"><svg viewBox="0 0 24 24"><path d="${contribAll ? 'm6 15 6-6 6 6' : 'm6 9 6 6 6-6'}"/></svg>${contribAll ? '' : `<span>Show all ${C.length}</span>`}</button>
+    <p class="ctbthr"><i></i>Safe threshold</p>
+  </div>`;
+}
+function bindContrib(k, redraw){
+  const box = $('#ctb'); if (!box) return;
+  box.querySelectorAll('.ctr[data-k]').forEach(b => b.onclick = () => openContrib(k, b.dataset.k));
+  $('#ctbInfo').onclick = () => openContribInfo(redraw);
+  $('#ctbTog').onclick = () => { contribAll = !contribAll; store.set(K_CONTRIB_OPEN, contribAll); redraw(); };
+}
+function openContrib(k, key){
+  const c = contributors(dayEntries(k)).find(x => x.k === key); if (!c) return;
+  sheet(`<div class="cdh"><span class="ce big">${c.emoji}</span><div><h2>${c.name}</h2><p class="cp ${Math.round(c.pts) > 0 ? 'p' : Math.round(c.pts) < 0 ? 'n' : ''}">${ptsTxt(c.pts, c.pos)} points ${k === today() ? 'today' : 'on this day'}</p></div></div>
+    <div class="cbar big"><i class="${c.pos ? 'p' : Math.round(c.pts) < 0 ? 'n' : 'z'}" style="width:${c.fill * 100}%"></i><span class="cdot" style="left:${c.fill * 100}%"></span>${c.tick != null ? `<span class="ctick" style="left:${c.tick * 100}%"></span>` : ''}</div>
+    <p style="margin-top:10px;font-size:15px"><b>${esc(c.amt)}</b></p>
+    <p class="muted" style="margin-top:8px">${esc(c.guide)} ${c.pos ? `Up to +${c.max} points.` : c.k === 'alc' ? '' : `Up to −${c.max} points.`}</p>
+    ${c.foods.length ? `<label class="lbl">What counted</label><div class="rings">${c.foods.map(f => `<div class="ri"><div class="t"><b class="notr">${esc(f.name)}</b></div><span class="k">${Math.round(f.g)}g</span></div>`).join('')}</div>` : ''}
+    ${(c.pos && c.fill < 1) || (!c.pos && Math.round(c.pts) < 0) ? `<div class="note" style="margin-top:12px">${esc(c.tip)}</div>` : ''}
+    <button class="btn plain" id="cdClose" style="margin-top:14px">Close</button>`, s => { s.querySelector('#cdClose').onclick = close; });
+}
+function openContribInfo(redraw){
+  const off = contribOff();
+  const row = c => `<div class="cir"><span class="ce">${c.emoji}</span><span class="cn">${c.name}</span><span class="cp ${c.pos ? 'p' : 'n'}">${c.pos ? '+' : '−'}${c.max} points</span>
+    <button class="tgl${off.includes(c.k) ? '' : ' on'}" data-k="${c.k}" aria-label="Count ${c.name}"><i></i></button></div>`;
+  sheet(`<h2>Food quality contributors</h2><p class="muted">On top of food quality and balance, these food groups add or take away points from your day's health score.</p>
+    <label class="lbl">Positive impact</label><div class="cil">${CONTRIB.filter(c => c.pos).map(row).join('')}</div>
+    <label class="lbl">Negative impact</label><div class="cil">${CONTRIB.filter(c => !c.pos).map(row).join('')}</div>
+    <div class="note" style="margin-top:12px"><b>Note:</b> excess sodium and sugar only count once their safe threshold is passed. Alcohol can take off up to 40 points. Switch off any contributor that isn't part of your diet.</div>
+    <button class="btn primary" id="ciDone" style="margin-top:14px">Done</button>`, s => {
+    s.querySelectorAll('.tgl').forEach(b => b.onclick = () => {
+      let o = contribOff(); o = o.includes(b.dataset.k) ? o.filter(x => x !== b.dataset.k) : o.concat(b.dataset.k);
+      store.set(K_CONTRIB_OFF, o); b.classList.toggle('on', !o.includes(b.dataset.k));
+    });
+    s.querySelector('#ciDone').onclick = () => { close(); redraw(); };
+  });
+}
+
 // ---------------- "Which meal?" bar pinned to the bottom of food results ----------------
 const MEAL_ONE = {breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner', snack: 'Snack'};
 const MEAL_ICON = {
@@ -1293,6 +1441,119 @@ function mountMealBar(food, suggested){
   }));
 }
 
+// ---------------- first-run tutorial ----------------
+// Shows once (fs_tour_done). Replay from Settings → "Watch the tutorial again".
+const K_TOUR = 'fs_tour_done', K_TIPS = 'fs_tips_seen';
+const tourDone = () => !!store.get(K_TOUR, false);
+function tourSlides(){
+  const g = goal(), pr = (store.get(K_GOAL, null) || {}).profile || {};
+  return [
+    {key: 'hi', art: `<div class="tart hi"><svg viewBox="0 0 64 64"><path d="M32 54 C14 42 6 33 6 22.5 C6 15 12 9.5 19 9.5 C24.5 9.5 29 12.5 32 17 C35 12.5 39.5 9.5 45 9.5 C52 9.5 58 15 58 22.5 C58 33 50 42 32 54 Z" fill="currentColor"/>${[[20, 3.2], [25, 1.8], [28.8, 3.6], [34.4, 1.8], [38.2, 2.6], [42.6, 1.6]].map(([x, w]) => `<rect x="${x}" y="21" width="${w}" height="17" rx="1" fill="var(--brand)"/>`).join('')}</svg></div>`,
+      title: 'Welcome to HealthierSlop', text: 'Track what you eat, scan food to see what\'s really in it, and get a health score for every day.',
+      body: `<div class="tfeat">${[['📷', 'Scan & score food'], ['🍽️', 'Calories & macros'], ['📅', 'Daily health score'], ['🥣', 'Recipes & habits'], ['💧', 'Water'], ['☕', 'Caffeine & alcohol']].map(([e, t]) => `<span><i>${e}</i>${t}</span>`).join('')}</div>`},
+    {key: 'goal', title: 'Set your daily targets', text: 'Your calories and macros are worked out from you. You can change them any time.',
+      body: `<div class="tform">
+        <div class="seg" id="tSex"><button data-s="f" class="${pr.sex === 'f' ? 'on' : ''}">Female</button><button data-s="m" class="${pr.sex === 'm' ? 'on' : ''}">Male</button></div>
+        <div class="ngrid3"><div><span class="muted">Age</span><input class="field" id="tAge" inputmode="numeric" value="${esc(pr.age || '')}"></div>
+          <div><span class="muted">Height cm</span><input class="field" id="tH" inputmode="decimal" value="${esc(pr.h || '')}"></div>
+          <div><span class="muted">Weight kg</span><input class="field" id="tW" inputmode="decimal" value="${esc(pr.w || '')}"></div></div>
+        <select class="field" id="tAct">${[['1.2', 'Mostly sitting'], ['1.375', 'Light activity (1–3 workouts a week)'], ['1.55', 'Moderate (3–5 a week)'], ['1.725', 'Very active (6–7 a week)'], ['1.9', 'Physical job + training']].map(([v, n]) => `<option value="${v}" ${String(pr.act || '1.375') === v ? 'selected' : ''}>${n}</option>`).join('')}</select>
+        <select class="field" id="tAim">${[['-500', 'Lose about 0.5kg a week'], ['-250', 'Lose slowly'], ['0', 'Stay the same'], ['250', 'Gain slowly'], ['500', 'Gain about 0.5kg a week']].map(([v, n]) => `<option value="${v}" ${String(pr.aim ?? '0') === v ? 'selected' : ''}>${n}</option>`).join('')}</select>
+        <div class="tres" id="tRes"></div></div>`},
+    {key: 'log', art: `<div class="tart" style="--c:var(--brand)"><svg viewBox="0 0 24 24"><path d="M4 8V5h3M17 5h3v3M20 16v3h-3M7 19H4v-3M8 9v6M11 9v6M14 9v6M17 9v6"/></svg></div>`,
+      title: 'Log food in seconds', text: 'Scan a barcode or search, then choose the meal. HealthierSlop adds the calories, macros, vitamins and minerals.',
+      body: `<div class="tmock"><p>Add to your calories — which meal?</p><div class="mbtns">${MEALS.map(([m]) => `<button tabindex="-1" class="${m === mealNow() ? 'on' : ''}"><svg viewBox="0 0 24 24">${MEAL_ICON[m]}</svg>${MEAL_ONE[m]}</button>`).join('')}</div></div>
+        <ul class="tlist"><li><b>Fruit & veg:</b> type the number on the sticker, e.g. 4011 for bananas.</li><li><b>Not in the database?</b> Use Quick add, or snap the label.</li><li><b>Today screen:</b> tap the date to see the calendar; arrows move between days.</li></ul>`},
+    {key: 'score', art: `<div class="tart score">${tickRing(.82, 'var(--g5)', '<text x="20" y="24.5" text-anchor="middle" class="rs" style="font-size:12px">82</text>')}</div>`,
+      title: 'Your daily health score', text: 'Every food gets a score out of 100, and so does every day you track.',
+      body: `<ul class="tlist"><li><b>Food quality</b> — how healthy the foods are (additives, processing, ingredients).</li><li><b>Balance</b> — protein, fibre, sugars, saturated fat and sodium.</li>
+        <li><b>Food groups</b> — <span style="color:var(--g5)">+ points</span> for veg, whole grains, fruit, nuts, healthy oils and fish; <span style="color:var(--g2)">− points</span> for processed meat, excess salt and sugar, and alcohol.</li>
+        <li>The <b>calendar</b> shows each day's score as a ring, plus rest, sick and training days.</li></ul>`},
+    {key: 'more', title: 'There\'s more', text: 'A few things worth knowing about:',
+      body: `<div class="tmore">
+        <div><i>🥣</i><span><b>Recipes</b> — save meals you make often, favourite them, and log a serve in one tap.</span></div>
+        <div><i>🔁</i><span><b>Habits</b> — make a recipe or food repeat, e.g. breakfast every weekday at 7:30. It's added for you.</span></div>
+        <div><i>💧</i><span><b>Water</b> — tap +250 ml, +500 ml or any amount. 2 litres a day to start.</span></div>
+        <div><i>☕</i><span><b>Caffeine & alcohol</b> — caffeine against your daily limit; alcohol in standard drinks, which lowers your score.</span></div>
+        <div><i>🏋️</i><span><b>Day type</b> — mark days as Training, Rest, Sick or Off with the button next to the date.</span></div></div>
+        <p class="muted" style="margin-top:12px;text-align:center">Everything is saved on your phone only. General info, not medical advice.</p>`}
+  ];
+}
+function openTour(){
+  const slides = tourSlides(); let i = 0, sex = ((store.get(K_GOAL, null) || {}).profile || {}).sex || null;
+  const old = $('#tour'); if (old) old.remove();
+  document.body.insertAdjacentHTML('beforeend', `<div class="tour" id="tour" role="dialog" aria-modal="true" aria-label="HealthierSlop tutorial">
+    <div class="ttop"><span class="tstep" id="tStep"></span><button class="tskip" id="tSkip">Skip</button></div>
+    <div class="ttrack" id="tTrack">${slides.map(s => `<section class="tslide" data-k="${s.key}">${s.art || ''}<h2>${s.title}</h2><p class="tsub">${s.text}</p>${s.body || ''}</section>`).join('')}</div>
+    <div class="tbot"><div class="tdots">${slides.map((_, n) => `<i data-n="${n}"></i>`).join('')}</div>
+      <div class="tbtns"><button class="btn plain" id="tBack">Back</button><button class="btn primary" id="tNext">Next</button></div></div></div>`);
+  document.documentElement.classList.add('touring');
+  const T = $('#tour'), track = $('#tTrack');
+  // targets slide
+  const calc = () => {
+    const age = num($('#tAge').value), h = num($('#tH').value), w = num($('#tW').value);
+    if (!sex || !age || !h || !w) return null;
+    const bmr = 10 * w + 6.25 * h - 5 * age + (sex === 'm' ? 5 : -161), tdee = bmr * +$('#tAct').value, floor = sex === 'm' ? 1500 : 1200;
+    const kcal = Math.max(floor, Math.round((tdee + +$('#tAim').value) / 10) * 10);
+    return {kcal, w, profile: {sex, age, h, w, act: $('#tAct').value, aim: $('#tAim').value}};
+  };
+  const showRes = () => {
+    const c = calc(), el = $('#tRes');
+    if (!c){ el.innerHTML = '<p class="muted">Fill these in to see your numbers — or skip for now and use a general 2,080 kcal.</p>'; return; }
+    const m = macrosFor(c.kcal, Object.assign({}, store.get(K_GOAL, null) || {}, {profile: c.profile}));
+    el.innerHTML = `<div class="tnum"><b>${eFmt(c.kcal)}</b><span>a day</span></div><div class="tmac"><span style="color:var(--pro)"><b>${m.protein}g</b> protein</span><span style="color:var(--carb)"><b>${m.carbs}g</b> carbs</span><span style="color:var(--fat)"><b>${m.fat}g</b> fat</span></div>`;
+  };
+  T.querySelectorAll('#tSex button').forEach(b => b.onclick = () => { sex = b.dataset.s; T.querySelectorAll('#tSex button').forEach(x => x.classList.toggle('on', x === b)); showRes(); });
+  T.querySelectorAll('.tform input, .tform select').forEach(x => { x.oninput = showRes; x.onchange = showRes; });
+  showRes();
+  const saveTargets = () => { const c = calc(); if (c) saveGoal({kcal: c.kcal, kcalAuto: false, manual: false, profile: c.profile}); };
+  const finish = () => {
+    saveTargets(); store.set(K_TOUR, true); try{ localStorage.setItem('fs_welcome', '1'); }catch(e){}
+    document.documentElement.classList.remove('touring'); T.classList.add('out'); setTimeout(() => T.remove(), 250);
+    if (window.FSApp) FSApp.show('cal'); else render();
+  };
+  let shown = -1;
+  const go = n => {
+    i = Math.max(0, Math.min(slides.length - 1, n));
+    const moved = i !== shown; shown = i;
+    track.style.transform = `translateX(${-i * 100}%)`;
+    T.querySelectorAll('.tdots i').forEach((d, n2) => d.classList.toggle('on', n2 === i));
+    $('#tStep').textContent = `${i + 1} of ${slides.length}`;
+    $('#tBack').style.visibility = i ? 'visible' : 'hidden';
+    $('#tNext').textContent = i === slides.length - 1 ? 'Get started' : slides[i].key === 'goal' ? (calc() ? 'Save & continue' : 'Skip for now') : 'Next';
+    $('#tSkip').style.visibility = i === slides.length - 1 ? 'hidden' : 'visible';
+    if (!moved) return;
+    T.querySelectorAll('.tslide').forEach((s, n2) => { s.setAttribute('aria-hidden', String(n2 !== i)); s.scrollTop = 0; });
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+  };
+  T.querySelectorAll('.tform input, .tform select, #tSex button').forEach(x => x.addEventListener('input', () => go(i)));
+  T.querySelectorAll('#tSex button').forEach(x => x.addEventListener('click', () => go(i)));
+  $('#tNext').onclick = () => i === slides.length - 1 ? finish() : go(i + 1);
+  $('#tBack').onclick = () => go(i - 1);
+  $('#tSkip').onclick = finish;
+  T.querySelectorAll('.tdots i').forEach(d => d.onclick = () => go(+d.dataset.n));
+  // swipe
+  let x0 = null, y0 = null;
+  track.addEventListener('touchstart', e => { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; }, {passive: true});
+  track.addEventListener('touchend', e => {
+    if (x0 == null) return; const dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0; x0 = null;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5 && !(e.target.closest && e.target.closest('input,select'))) go(i + (dx < 0 ? 1 : -1));
+  });
+  document.addEventListener('keydown', function kd(e){ if (!document.getElementById('tour')){ document.removeEventListener('keydown', kd); return; } if (e.key === 'ArrowRight') go(i + 1); if (e.key === 'ArrowLeft') go(i - 1); });
+  go(0);
+}
+// one-time tips on the other tabs
+function tipCard(key, html){
+  const seen = store.get(K_TIPS, []); if (seen.includes(key)) return '';
+  return `<div class="ttip" data-tip="${key}"><span class="tti">💡</span><p>${html}</p><button aria-label="Got it">Got it</button></div>`;
+}
+function bindTips(root){
+  (root || document).querySelectorAll('.ttip button').forEach(b => b.onclick = () => {
+    const box = b.closest('.ttip'), k = box.dataset.tip, seen = store.get(K_TIPS, []);
+    if (!seen.includes(k)) store.set(K_TIPS, seen.concat(k)); box.remove();
+  });
+}
+
 // ---------------- "Add to calorie tracker" card on food results ----------------
 // info: {name, brand, code, N (per 100: kj, protein, carbs, fat, fibre…), serving:{g,unit}|null, pack:{g,unit}|null, isDrink, produce}
 function foodFrom(info){
@@ -1308,6 +1569,7 @@ function foodFrom(info){
   return {name: info.name || 'Food', brand: info.brand || '', code: info.code || '', score: typeof info.score === 'number' ? info.score : null,
     per100: {kcal, p: N.protein || 0, c: c || 0, f: N.fat || 0, sugar: N.sugar || 0, sat: N.sat || 0, fib: N.fibre || 0, na: N.sodium || 0, alc: info.abv ? sdOf(100, info.abv) : 0, micro: microFrom(info.nutriments)},
     full: N.sugar != null && N.sodium != null && N.sat != null,
+    cats: (info.cats || []).slice(0, 10), ing: String(info.ing || '').slice(0, 160),
     fixed: null, serveG: s ? s.g : null, packG: pk ? pk.g : null, u: (s && s.unit) || (pk && pk.unit) || (info.isDrink ? 'ml' : 'g'), produce: !!info.produce};
 }
 function mountLog(el, info){
@@ -1344,5 +1606,5 @@ function mountLog(el, info){
 }
 
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible'){ const v = $('#v-cal'); if (v && !v.classList.contains('hidden')) render(); else runHabits(); } });
-window.FSCal = {render: () => render(), renderMonth: () => renderMonth(), renderRecipes: () => renderRecipes(), mountLog, open: () => { pending = null; render(); }};
+window.FSCal = {tour: () => openTour(), tourDone, render: () => render(), renderMonth: () => renderMonth(), renderRecipes: () => renderRecipes(), mountLog, open: () => { pending = null; render(); }};
 })();

@@ -64,11 +64,12 @@ function renderRecent(){
   $('#recent').querySelectorAll('.rc').forEach(el => el.onclick = () => lookup(el.dataset.c));
 }
 $('#seeAll').onclick = () => show('history');
+$('#btnTour').onclick = () => window.FSCal && FSCal.tour();
 $('#histBtn').onclick = () => show('history');
 $('#btnSources').onclick = () => FSInfo.sources(); $('#btnPrivacy').onclick = () => FSInfo.privacy(); $('#btnAbout').onclick = () => FSInfo.about();
 const setOffline = () => $('#offline').classList.toggle('hidden', navigator.onLine !== false);
 window.addEventListener('online', setOffline); window.addEventListener('offline', setOffline); setOffline();
-setTimeout(() => FSInfo.welcome(), 400);
+setTimeout(() => { if (window.FSCal && !FSCal.tourDone()) FSCal.tour(); }, 400);
 $('#focusSearch').onclick = () => { $('#q').focus(); $('#q').scrollIntoView({behavior:'smooth', block:'center'}); };
 $('#fab').onclick = () => { show('scan'); startScan(); };
 $('#clearHist').onclick = () => { store.set('fs_hist', []); renderHistory(); renderRecent(); toast('History cleared'); };
@@ -977,11 +978,22 @@ function analyse(p){
   const plastic = /plastic|pet\b|en:pet|polyeth|polyprop|\bpp\b|\bpe\b|hdpe|ldpe|polystyrene|film|tray|pouch|tub/.test(pack);
   if (plastic){ mpPts -= 3; mpWhy.push('plastic packaging can shed microplastics, more so when heated or squeezed'); }
   if (/bottle/.test(pack) && plastic){ mpPts -= 1; mpWhy.push('plastic bottles are one of the biggest known sources'); }
-  if (/can\b|en:can|tin\b|metal/.test(pack)){ mpPts -= 1; mpWhy.push('cans are usually lined with a plastic (BPA/BPA-free) coating'); }
-  if (/glass/.test(pack) && !plastic) mpWhy.push('glass packaging is a good sign');
+  const glassPack = /glass/.test(pack) && !plastic;
+  const canPack = /\bcans?\b|en:cans?\b|\btins?\b|en:aluminium-can|drink-can|metal-can/.test(pack) && !glassPack;
+  if (canPack){ mpPts -= 1; mpWhy.push('cans are usually lined with a plastic (BPA/BPA-free) coating'); }
+  if (glassPack && isDrink && /bottle|\bcap\b|en:glass/.test(pack)){ mpPts -= 1; mpWhy.push('glass bottles are sealed with painted caps that can shed paint particles — a 2025 French food-safety study found more microplastics in glass-bottled drinks than in plastic bottles or cans'); }
+  else if (glassPack) mpWhy.push('glass packaging is a good sign');
   if (/seafood|fish|tuna|salmon|prawn|shrimp|mussel|oyster|shellfish|sardine/.test(cats)){ mpPts -= 3; mpWhy.push('seafood tends to carry microplastics from the ocean'); }
   if (/sea-salt|salts\b|en:salts/.test(cats) || /sea salt/.test(ingText)){ mpPts -= 2; mpWhy.push('sea salt commonly contains microplastic particles'); }
-  if (/bottled-water|en:waters|mineral-water|spring-water/.test(cats)){ mpPts -= 3; mpWhy.push('bottled water has some of the highest measured microplastic counts'); }
+  // bottled water: assume a plastic (PET) bottle unless the packaging says glass or can
+  let waterPack = null;
+  if (/bottled-water|en:waters|mineral-water|spring-water/.test(cats)){
+    waterPack = glassPack ? 'glass' : canPack ? 'can' : plastic ? 'plastic' : 'likely-plastic';
+    if (waterPack === 'plastic' || waterPack === 'likely-plastic'){
+      mpPts -= waterPack === 'plastic' ? 3 : 5;
+      mpWhy.push(`${waterPack === 'likely-plastic' ? 'most bottled water is sold in plastic (PET) bottles; ' : ''}water from plastic bottles has some of the highest measured micro- and nanoplastic counts — about 240,000 particles per litre in a 2024 US study, and several times more than tap water on average`);
+    } else { mpPts -= 2; mpWhy.push('bottled water still carries some microplastics, whatever the container — tap water usually has fewer'); }
+  }
   if (/tea-bags|en:teas|herbal-teas/.test(cats) || sp === 'tea'){
     const tb = (pack + ' ' + nameOf(p).toLowerCase() + ' ' + ingText);
     if (/nylon|mesh|pyramid|silky|polypropylene|\bpla\b|plastic tea bag/.test(tb)){ mpPts -= 4; mpWhy.push('mesh/pyramid tea bags release billions of plastic particles in hot water'); }
@@ -1085,6 +1097,7 @@ function analyse(p){
   const envPenalty = env && (me.envPref || []).includes('Count environmental impact in the score') ? env.penalty : 0;
   if (envPenalty) score = clamp(score - envPenalty, 0, 100);
   const caps = [];
+  if ((waterPack === 'plastic' || waterPack === 'likely-plastic') && score > 79){ score = 79; caps.push('Capped at 79 because water from plastic bottles is high in microplastics — tap water in a reusable bottle scores higher.'); }
   const nr = nutPts / 20;
   if (nr < 0.2 && score > 49){ score = 49; caps.push('Capped at 49 because the nutrition is very poor.'); }
   else if (nr < 0.4 && score > (sp === 'cheese' ? 69 : 59)){ score = sp === 'cheese' ? 69 : 59; caps.push(`Capped at ${score} because the nutrition is ${sp === 'cheese' ? 'high in saturated fat and salt' : 'poor'}.`); }
@@ -1104,7 +1117,7 @@ function analyse(p){
   return {code: p.code, name: nameOf(p), brand: p.brands || '', qty: p.quantity || '', img: p.image_front_url || p.image_front_small_url || '',
     score, nova, ns, breakdown, N, additives, ingredients, effects, warnings, summary,
     pest:{risk:pestRisk, why:pestWhy}, mp:{risk:mpRisk, why: mpWhy.length ? cap(mpWhy.join('; ')) + '.' : 'No obvious microplastic sources.'},
-    hsr: (() => { const m = (p.labels_tags || []).join(' ').match(/health-star-rating-(\d)(?:-(5))?\b/); return m ? (m[2] ? m[1] + '.5' : m[1]) : null; })(), isDrink, env, envPenalty, bc: window.FSEnv ? FSEnv.barcodeCountry(p.code) : null, produce: p._produce || null, sp, alc, dose, animal, animalPenalty: animal && animalCount ? animal.penalty : 0, origin: originOf(p), cats: p.categories_tags || [], type, seedOils, tested, perServe, flags, hm:{risk:hmRisk, why:hmWhy}};
+    hsr: (() => { const m = (p.labels_tags || []).join(' ').match(/health-star-rating-(\d)(?:-(5))?\b/); return m ? (m[2] ? m[1] + '.5' : m[1]) : null; })(), isDrink, env, envPenalty, bc: window.FSEnv ? FSEnv.barcodeCountry(p.code) : null, produce: p._produce || null, sp, alc, dose, animal, animalPenalty: animal && animalCount ? animal.penalty : 0, origin: originOf(p), cats: p.categories_tags || [], type, seedOils, tested, perServe, flags, waterPack, hm:{risk:hmRisk, why:hmWhy}};
 }
 function originOf(p){
   const made = (p.manufacturing_places || p.origins || '').split(',')[0].trim();
@@ -1118,6 +1131,19 @@ const cap = s => s ? s[0].toUpperCase() + s.slice(1) : s;
 // ---------------- alternatives ----------------
 async function findAlternatives(p, r){
   const el = () => $('#alts');
+  if (r.waterPack){
+    const box = el(); if (!box) return;
+    const h = box.closest('.card') && box.closest('.card').querySelector('h2'); if (h) h.textContent = '🔁 Better choice';
+    box.innerHTML = `<div class="alt better"><div class="altic">🚰</div><div style="flex:1"><b>Tap water in a reusable bottle</b>
+        <p>Use a stainless steel or glass bottle you refill. Tap water has far fewer microplastics than bottled — reviews find several times fewer on average — and in most of Australia it's safe to drink. A good filter jug or tap filter can cut them further.</p></div></div>
+      ${r.waterPack === 'glass' ? '<div class="note" style="margin-top:10px">Glass-bottled water isn\'t the fix it seems: a 2025 French food-safety study found slightly <b>more</b> microplastics in glass-bottled water than in plastic, from paint on the caps.</div>' : ''}
+      <ul class="plain" style="margin-top:10px">
+        <li>If you do buy bottled water, don't leave it in a hot car or the sun — heat makes plastic shed more.</li>
+        <li>Single-use plastic bottles aren't made to be refilled over and over — they wear and shed more with reuse.</li>
+        ${r.waterPack === 'glass' ? '<li>Rinsing the cap before closing the bottle again helps — the study found cleaning caps cut particles by about 60%.</li>' : ''}
+      </ul>`;
+    return;
+  }
   if (p._produce){
     const box = el(); if (!box) return;
     box.innerHTML = p._produce.residue === 'high' && !p._produce.organic
@@ -1282,6 +1308,7 @@ function renderResult(r, p){
   $('#v-result').innerHTML = `
   ${r.warnings.length ? `<div class="warn">⚠️ ${r.warnings.map(esc).join('<br>')}</div>` : ''}
   ${(r.flags || []).length ? `<div class="flag">🌻 ${r.flags.map(esc).join('<br>')}</div>` : ''}
+  ${r.waterPack === 'plastic' || r.waterPack === 'likely-plastic' ? `<div class="flag">🧴 <b>High in microplastics.</b> ${r.waterPack === 'likely-plastic' ? 'This is most likely in a plastic bottle — water' : 'Water'} from plastic bottles carries far more micro- and nanoplastics than tap water. See the better choice below.</div>` : ''}
   <div class="card">
     ${r.img ? `<img class="pimg" src="${esc(r.img)}" alt="">` : ''}
     <div class="hero">
@@ -1359,7 +1386,7 @@ function renderResult(r, p){
   <div class="card"><p class="muted">Barcode ${esc(r.code)} · Data from <a href="https://world.openfoodfacts.org/product/${encodeURIComponent(r.code)}" target="_blank" rel="noopener" style="color:var(--brand)">Open Food Facts</a>. General info, not medical advice.</p>
     <button class="btn primary" style="margin-top:12px" id="again">Scan another</button></div>`;
   $('#again').onclick = () => { show('scan'); startScan(); };
-  if (window.FSCal) FSCal.mountLog($('#calLog'), {name: r.name, brand: r.brand, code: r.code, score: r.score, abv: r.alc && r.alc.abv ? r.alc.abv : null, N: r.N, nutriments: (p || {}).nutriments || {}, isDrink: r.isDrink, produce: !!r.produce,
+  if (window.FSCal) FSCal.mountLog($('#calLog'), {name: r.name, brand: r.brand, code: r.code, score: r.score, cats: (p || {}).categories_tags || [], ing: englishIngredients(p || {}), abv: r.alc && r.alc.abv ? r.alc.abv : null, N: r.N, nutriments: (p || {}).nutriments || {}, isDrink: r.isDrink, produce: !!r.produce,
     serving: gramsOf((p || {}).serving_size), pack: r.produce ? null : gramsOf((p || {}).quantity)});
 }
 
