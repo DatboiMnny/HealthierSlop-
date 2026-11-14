@@ -9,7 +9,7 @@ const L = (txt, url) => `<a href="${url}" target="_blank" rel="noopener">${txt}<
 const SOURCES = `
   <p class="muted">HealthierSlop combines open product databases with published guidance from health and regulatory bodies. Scores are general information, not medical advice. Where research is mixed, the app says so.</p>
   ${S('Product data', [
-    `${L('Open Food Facts', 'https://world.openfoodfacts.org')}, ${L('Open Beauty Facts', 'https://world.openbeautyfacts.org')}, ${L('Open Pet Food Facts', 'https://world.openpetfoodfacts.org')}, ${L('Open Products Facts', 'https://world.openproductsfacts.org')} — crowd-sourced, Open Database Licence (ODbL).`,
+    `${L('Open Food Facts', 'https://world.openfoodfacts.org')} — crowd-sourced, Open Database Licence (ODbL).`,
     `${L('USDA FoodData Central', 'https://fdc.nal.usda.gov')} — US government branded food data.`,
     `${L('NIH Dietary Supplement Label Database (DSLD)', 'https://dsld.od.nih.gov')} — National Institutes of Health, Office of Dietary Supplements. US supplement labels (CC0).`,
     `${L('openFDA drug labels', 'https://open.fda.gov')} — U.S. Food and Drug Administration. Over-the-counter medicines and US personal-care products regulated as drugs (sunscreen, fluoride toothpaste, antiperspirant). Do not rely on openFDA to make decisions regarding medical care.`,
@@ -34,14 +34,12 @@ const SOURCES = `
   ])}
   ${S('Additives, ingredients & chemicals', [
     `Additive concern levels — positions of the European Food Safety Authority (EFSA), FSANZ and IARC classifications (e.g. aspartame 2B, processed meat Group 1).`,
-    `Cosmetic ingredients — EU Scientific Committee on Consumer Safety (SCCS) opinions and EU cosmetics regulation (e.g. restricted parabens, MI/MCI, titanium dioxide), IARC (talc 2A, formaldehyde Group 1).`,
     `Infant formula & baby food — FSANZ Standards 2.9.1 and 2.9.2.`,
     `Heavy metals — FSANZ mercury-in-fish advice and published independent testing of rice, cocoa and plant proteins. Ratings are estimates from ingredients, not lab tests.`,
     `Pesticide residues for fresh produce — US residue testing summarised in the Environmental Working Group "Dirty Dozen / Clean Fifteen" lists (US data). Estimates only.`,
     `Microplastics — estimated from packaging and fibre type, based on published research. Not a measurement.`
   ])}
   ${S('Animal welfare & environment', [
-    `Cruelty-free — ${L('Cruelty Free International (Leaping Bunny / Choose Cruelty Free)', 'https://crueltyfreeinternational.org')}, PETA Beauty Without Bunnies.`,
     `Farming labels — RSPCA Approved, free-range and organic certifications; seafood — MSC / ASC; palm oil — RSPO.`,
     `Environmental grade — Open Food Facts Green-Score where available; otherwise an estimate from main ingredients and packaging.`
   ])}
@@ -64,7 +62,7 @@ const PRIVACY = `
     'Deleting the app (or clearing its data) removes all of this. You can also clear history and your added products in Settings.'
   ])}
   ${S('What is sent, and to whom', [
-    'Barcodes and search terms → Open Food Facts, Open Beauty Facts, Open Pet Food Facts and Open Products Facts (run by the non-profit Open Food Facts association, France).',
+    'Barcodes and search terms → Open Food Facts (run by the non-profit Open Food Facts association, France).',
     'Barcodes not found there → USDA FoodData Central (US Department of Agriculture), using a shared demo key or your own key if you add one.',
     'Barcodes not found there → the NIH Dietary Supplement Label Database (US National Institutes of Health) and openFDA (US Food and Drug Administration). If nothing has it, the barcode is sent to UPCitemdb to look up the product name.',
     'The first time you read a label in a language other than English, the language data file is downloaded from the jsDelivr content network.',
@@ -79,7 +77,7 @@ const PRIVACY = `
   ${S('Contact', [`Questions about privacy: <a href="mailto:${CONTACT}">${CONTACT}</a>`])}`;
 
 const ABOUT = `
-  <p>HealthierSlop scores food, drinks, supplements, personal care, pet food and household products from 0–100, based on what's actually in them — additives, ingredients, processing, nutrition, and estimated pesticide, heavy-metal and microplastic exposure — plus optional animal-welfare and environmental checks.</p>
+  <p>HealthierSlop tracks your calories, macros and nutrients, and scores food, drinks and supplements from 0–100, based on what's actually in them — additives, ingredients, processing, nutrition, and estimated pesticide, heavy-metal and microplastic exposure — plus optional animal-welfare and environmental checks.</p>
   <p class="muted" style="margin-top:10px">Version ${VERSION}. Product data © Open Food Facts contributors, available under the Open Database Licence.</p>
   <p class="muted" style="margin-top:10px">HealthierSlop provides general information only and is not medical advice.</p>`;
 
@@ -89,7 +87,9 @@ const WELCOME = `
   <p class="muted" style="text-align:center;margin-bottom:12px">Track it. Scan it. Score it.</p>
   <ul class="plain">
     <li>🍽️ Track calories, macros and everything you eat — every day gets a health score, and the calendar shows past days</li>
-    <li>📷 Scan food, drinks, skincare, pet food, cleaning products</li>
+    <li>🥣 Save your own recipes, favourite them, or make them a daily habit that logs itself</li>
+    <li>💧 Track your water — 2 litres a day by default</li>
+    <li>📷 Scan food, drinks and supplements to see what's in them</li>
     <li>📊 Get a 0–100 score with the reasons, and healthier swaps</li>
     <li>🙋 Set your goals, diet and allergies in Settings to personalise it</li>
     <li>🔒 No account, no tracking — your data stays on your phone</li>

@@ -498,6 +498,121 @@ nav button.on::before{display:none}
 .infolist p{display:flex;gap:12px;align-items:center;margin-top:12px;font-size:14px}
 .infolist .tring{width:42px;flex:none}
 @media (max-width:370px){.mc{min-height:84px}.rs{font-size:10px}.gch{width:40%}.gt{padding:10px}.gt b{font-size:15px}}
+
+/* Recipes, habits, hydration */
+:root{--water:#2f9bff}
+[data-theme="dark"]{--water:#5cb3ff}
+.vtitle{font-size:28px;font-weight:800;letter-spacing:-.02em}
+.rbp{background:var(--brand);color:#fff}
+[data-theme="dark"] .rbp{color:#0b0f17}
+.useg.wide{margin-bottom:14px}
+.useg.wide button{flex:1}
+.rlist .rcard{cursor:pointer;padding:16px}
+.rtop{display:flex;align-items:center;gap:10px}
+.rtop .t{flex:1;min-width:0}
+.rtop b{display:block;font-size:16.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rtop .t span{font-size:13px;color:var(--muted)}
+.rfav{border:0;background:none;padding:4px;cursor:pointer;display:grid;place-items:center}
+.star{width:24px;height:24px;fill:none;stroke:var(--muted);stroke-width:1.8;stroke-linejoin:round}
+.star.on{fill:#ffb020;stroke:#ffb020}
+.rmac{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:10px;font-size:13.5px;color:var(--muted)}
+.rmac b{font-weight:750}
+.rmac span:first-child{color:var(--ink)}
+.rfoot{display:flex;align-items:center;gap:8px;margin-top:10px}
+.rfoot .muted{font-size:12.5px;flex:1}
+.hbadge{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:650;color:var(--brand);background:var(--brand-soft);border-radius:999px;padding:4px 9px}
+.rep{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.rlog{display:inline-flex;align-items:center;gap:4px;border:0;border-radius:999px;background:var(--brand);color:#fff;font:700 13.5px var(--font);padding:7px 12px;cursor:pointer}
+[data-theme="dark"] .rlog{color:#0b0f17}
+.rlog svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round}
+.rempty{text-align:center;padding:26px 20px}
+.rempty b{font-size:17px}
+.rempty p{margin-top:6px}
+.hlist{padding:6px 16px 14px}
+.hrow{display:flex;align-items:center;gap:12px;padding:12px 0;border-top:1px solid var(--line);cursor:pointer}
+.hrow:first-child{border-top:0}
+.hrow .t{flex:1;min-width:0}
+.hrow b{display:block;font-size:15px}
+.hrow .t span{font-size:13px;color:var(--muted)}
+.hic{width:38px;height:38px;border-radius:12px;background:var(--brand-soft);color:var(--brand);display:grid;place-items:center;flex:none}
+.hic.off{background:var(--soft);color:var(--muted)}
+.hic .rep{width:20px;height:20px}
+.tgl{width:46px;height:28px;border-radius:999px;border:0;background:var(--line);position:relative;cursor:pointer;flex:none;transition:background .2s}
+.tgl i{position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.2);transition:left .2s}
+.tgl.on{background:var(--brand)}
+.tgl.on i{left:21px}
+.hmini{display:inline-flex;vertical-align:-2px;margin-right:4px;color:var(--brand)}
+.rdh{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.rdsum{display:flex;gap:6px;margin:12px 0 4px;background:var(--soft);border-radius:18px;padding:12px 6px}
+.rdsum div{flex:1;text-align:center}
+.rdsum b{display:block;font-size:18px;font-weight:800}
+.rdsum span{font-size:11.5px;color:var(--muted)}
+.rings{display:flex;flex-direction:column}
+.ri{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line);cursor:pointer}
+.ri:first-child{border-top:0}
+.ri .t{flex:1;min-width:0}
+.ri b{display:block;font-size:14.5px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ri .t span,.ri .k{font-size:12.5px;color:var(--muted)}
+.rix{width:30px;height:30px;border-radius:50%;border:0;background:var(--soft);color:var(--muted);font-size:18px;cursor:pointer;flex:none}
+.rnotes{white-space:pre-wrap;font-size:14px;margin-top:6px}
+.addgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.addb{border:0;background:var(--soft);border-radius:16px;padding:12px;text-align:left;cursor:pointer;color:var(--ink);font:inherit}
+.addb b{display:block;font-size:14.5px}
+.addb span{font-size:12px;color:var(--muted)}
+.stepper{display:flex;align-items:center;gap:8px}
+.stepper .field{text-align:center;width:80px;flex:none}
+.stepper button{width:44px;height:44px;border-radius:50%;border:0;background:var(--soft);font-size:22px;color:var(--ink);cursor:pointer;margin-top:8px}
+.dayrow{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-top:10px}
+.dayrow button{aspect-ratio:1;border-radius:50%;border:0;background:var(--soft);color:var(--muted);font:700 14px var(--font);cursor:pointer}
+.dayrow button.on{background:var(--brand);color:#fff}
+[data-theme="dark"] .dayrow button.on{color:#0b0f17}
+.chk{display:flex;align-items:center;gap:8px;margin-top:14px;font-size:14px}
+.chk input{width:20px;height:20px;accent-color:var(--brand)}
+.lblrow{display:flex;align-items:baseline;justify-content:space-between}
+.lnk{border:0;background:none;color:var(--brand);font:700 14px var(--font);cursor:pointer;margin-top:16px}
+.water .wrow{display:flex;align-items:center;gap:16px}
+.glass{width:56px;height:76px;flex:none}
+.wt{flex:1;min-width:0}
+.wt b{display:block;font-size:28px;font-weight:800;color:var(--water);letter-spacing:-.02em}
+.wt span{font-size:13.5px;color:var(--muted)}
+.wbar{height:8px;border-radius:999px;background:color-mix(in srgb,var(--water) 14%,transparent);margin-top:8px;overflow:hidden}
+.wbar i{display:block;height:100%;border-radius:999px;background:var(--water);transition:width .3s}
+.wbtns{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px}
+.wbtns button{border:0;border-radius:16px;background:color-mix(in srgb,var(--water) 11%,var(--card));color:var(--ink);font:750 15px var(--font);padding:11px 4px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:1px}
+.wbtns button span{font-size:11.5px;font-weight:600;color:var(--muted)}
+.wbtns button:active{transform:scale(.97)}
+.wundo{border:0;background:none;color:var(--muted);font:600 13px var(--font);margin-top:10px;cursor:pointer;padding:4px 0}
+.wline{font-size:14px;margin-bottom:10px}
+
+/* "Which meal?" bar on food results */
+.mealbar{position:fixed;left:14px;right:14px;bottom:calc(84px + env(safe-area-inset-bottom));z-index:6;max-width:532px;margin:0 auto;
+  background:color-mix(in srgb,var(--card) 94%,transparent);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border-radius:24px;box-shadow:0 8px 32px rgba(16,24,40,.16);padding:10px 10px 10px}
+.mealbar p{font-size:13.5px;font-weight:650;color:var(--muted);text-align:center;margin:0 0 8px}
+.mealbar p .lnk{margin:0 0 0 6px;font-size:13.5px}
+.mbtns{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.mbtns button{border:0;border-radius:16px;background:var(--soft);color:var(--ink);font:700 13px var(--font);padding:9px 2px 8px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px}
+.mbtns svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.mbtns button.on{background:var(--brand);color:#fff}
+[data-theme="dark"] .mbtns button.on{color:#0b0f17}
+.mbtns button:active{transform:scale(.96)}
+#v-result.hasbar{padding-bottom:120px}
+
+/* Caffeine & alcohol */
+:root{--caf:#a0673c;--alc:#c2477a}
+[data-theme="dark"]{--caf:#d79a6c;--alc:#ef7aa9}
+.dk{padding:10px 0}
+.dk+.dk{border-top:1px solid var(--line)}
+.dkh{display:flex;align-items:center;gap:12px}
+.dki{width:42px;height:42px;border-radius:14px;background:color-mix(in srgb,var(--c) 14%,var(--card));color:var(--c);display:grid;place-items:center;flex:none}
+.dki svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.dkh .t{flex:1;min-width:0}
+.dkh b{display:block;font-size:22px;font-weight:800;letter-spacing:-.01em}
+.dkh .t span{font-size:13px;color:var(--muted)}
+.dkadd{display:inline-flex;align-items:center;gap:4px;border:0;border-radius:999px;background:var(--soft);color:var(--ink);font:700 13.5px var(--font);padding:8px 13px;cursor:pointer}
+.dkadd svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round}
+.dkbar{height:8px;border-radius:999px;background:var(--soft);margin-top:10px;overflow:hidden}
+.dkbar i{display:block;height:100%;border-radius:999px}
+.dkn{font-size:13px;color:var(--muted);margin-top:6px}
 </style>
 </head>
 <body>
@@ -518,7 +633,7 @@ nav button.on::before{display:none}
 
     <div id="scanIdle" class="hero-scan" role="button" tabindex="0">
       <svg class="bars" viewBox="0 0 64 40" aria-hidden="true"><g fill="currentColor"><rect x="0" width="3" height="40"/><rect x="5" width="1.5" height="40"/><rect x="9" width="4" height="40"/><rect x="15" width="1.5" height="40"/><rect x="19" width="2.5" height="40"/><rect x="24" width="1.5" height="40"/><rect x="28" width="4" height="40"/><rect x="34" width="1.5" height="40"/><rect x="38" width="3" height="40"/><rect x="43" width="1.5" height="40"/><rect x="47" width="4" height="40"/><rect x="53" width="1.5" height="40"/><rect x="57" width="2.5" height="40"/><rect x="61" width="3" height="40"/></g></svg>
-      <div><b>Scan a barcode</b><span>Food, drinks, skincare, pet food, cleaning products & more</span></div>
+      <div><b>Scan a barcode</b><span>Food, drinks & supplements</span></div>
     </div>
     <div id="scanLive" class="scanner hidden">
       <video id="video" playsinline muted autoplay></video>
@@ -541,6 +656,7 @@ nav button.on::before{display:none}
     </div>
     <div id="searchRes"></div>
 
+    <button class="btn plain" id="histBtn" style="margin-top:10px">Scan history</button>
     <div id="recentWrap" class="hidden">
       <div class="sec-title"><h3>Recent scans</h3><button id="seeAll">See all</button></div>
       <div class="recent" id="recent"></div>
@@ -558,11 +674,9 @@ nav button.on::before{display:none}
           <li>🌱 Pesticides — 8 · ⚗️ Heavy metals — 8 · 🧴 Microplastics — 4</li>
           <li>🍺 Alcohol — −15 to −35, capped at 49 <span class="muted">(shows % alcohol and standard drinks)</span></li>
           <li>🙋 Fit for you — 5 <span class="muted">(your goals, diet & allergies)</span></li>
-          <li>🐾 Animal welfare — up to −10 <span class="muted">(caged eggs, factory-farmed meat, unsustainable fish, palm oil; cruelty-free status for personal care). Can be turned off.</span></li>
+          <li>🐾 Animal welfare — up to −10 <span class="muted">(caged eggs, factory-farmed meat, unsustainable fish, palm oil). Can be turned off.</span></li>
         </ul>
         <p class="muted" style="margin-top:10px"><b>Loose fruit & veg:</b> type the number on the sticker (e.g. 4011 for bananas; organic starts with 9).</p>
-        <p class="muted" style="margin-top:10px"><b>Pet food</b> is scored on pet safety (toxic ingredients), ingredient quality, preservatives & colours, and protein. <b>Household products</b> on health & safety, irritants, environment and packaging.</p>
-        <p class="muted" style="margin-top:10px"><b>Personal care</b> is scored on hormone disruptors, irritants, other health concerns, microplastics and skin fit.</p>
         <p class="muted" style="margin-top:10px">80+ Excellent · 60+ Good · 40+ Mediocre · 20+ Poor · below 20 Bad</p>
       </div>
     </details>
@@ -571,8 +685,8 @@ nav button.on::before{display:none}
       <div class="sec-title"><h3 id="picksH">Top rated</h3></div>
       <div class="tabs" role="tablist" id="pickTabs">
         <button role="tab" data-p="food" aria-selected="true">Food</button>
-        <button role="tab" data-p="skin" aria-selected="false">Skincare</button>
-        <button role="tab" data-p="hyg" aria-selected="false">Hygiene</button>
+        <button role="tab" data-p="drink" aria-selected="false">Drinks</button>
+        <button role="tab" data-p="snack" aria-selected="false">Snacks</button>
       </div>
       <div id="pickList" class="plist"></div>
     </section>
@@ -588,6 +702,7 @@ nav button.on::before{display:none}
   <!-- CALORIE TRACKER (drawn by tracker.js) -->
   <section id="v-cal"></section>
   <section id="v-month" class="hidden"></section>
+  <section id="v-recipes" class="hidden"></section>
 
   <!-- SETTINGS -->
   <section id="v-me" class="hidden">
@@ -610,14 +725,14 @@ nav button.on::before{display:none}
       <p class="muted">Personalises the "Fit for you" part of the score. Saved on this phone only.</p>
       <label class="lbl">Goals</label><div class="chips" id="goals"></div>
       <label class="lbl">Diet & preferences</label><div class="chips" id="diets"></div>
-      <label class="lbl">Skin (for personal care)</label><div class="chips" id="skin"></div>
+      <div class="chips hidden" id="skin"></div>
       <label class="lbl">Avoid / allergies</label>
       <input class="field" id="avoid" placeholder="e.g. peanuts, milk, caffeine">
     </div>
 
     <div class="card">
       <h2>🐾 Animal welfare</h2>
-      <p class="muted">Checks cruelty-free certification on personal care, and how animal ingredients in food were likely farmed (caged eggs, factory-farmed chicken and pork, unsustainable fishing, palm oil).</p>
+      <p class="muted">Checks how animal ingredients in food were likely farmed (caged eggs, factory-farmed chicken and pork, unsustainable fishing, palm oil).</p>
       <div class="chips" id="animal"></div>
     </div>
 
@@ -678,7 +793,7 @@ nav button.on::before{display:none}
   <button data-v="cal" class="on"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3c.6 3.2 4.8 5 4.8 10.2A4.8 4.8 0 0 1 7.2 13.2c0-2.4 1.3-3.9 2.3-4.8.2 1.8 1.2 2.8 2.2 3-.8-2.8-.2-5.8.3-8.4z"/></svg>Today</button>
   <button data-v="month"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>Calendar</button>
   <button data-v="scan"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V5h3M17 5h3v3M20 16v3h-3M7 19H4v-3M8 9v6M11 9v6M14 9v6M17 9v6"/></svg>Scan</button>
-  <button data-v="history"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg>History</button>
+  <button data-v="recipes"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 11h14a7 7 0 0 1-14 0zM4 20h16M9 7c0-1.5 1-2 1-3.5M13 7c0-1.5 1-2 1-3.5"/></svg>Recipes</button>
   <button data-v="me"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>Settings</button>
 </div></nav>
 
@@ -692,9 +807,7 @@ nav button.on::before{display:none}
 <script src="special.js"></script>
 <script src="produce.js"></script>
 <script src="env.js"></script>
-<script src="other.js"></script>
 <script src="animal.js"></script>
-<script src="cosmetics.js"></script>
 <script src="healthdb.js"></script>
 <script src="tracker.js"></script>
 <script src="app.js"></script>

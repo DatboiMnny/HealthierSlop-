@@ -9,10 +9,7 @@ const store = {
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
 };
 const API = 'https://world.openfoodfacts.org';
-const BAPI = 'https://world.openbeautyfacts.org';
-const PAPI = 'https://world.openpetfoodfacts.org';
-const OPAPI = 'https://world.openproductsfacts.org';
-const SRC = {food:['Open Food Facts', API], beauty:['Open Beauty Facts', BAPI], pet:['Open Pet Food Facts', PAPI], products:['Open Products Facts', OPAPI]};
+const SRC = {food:['Open Food Facts', API]};
 const FIELDS = ['code','product_name','product_name_en','generic_name','brands','quantity','image_front_small_url','image_front_url',
   'nutriscore_grade','nova_group','nutriments','additives_tags','ingredients_text','ingredients_text_en','ingredients',
   'allergens_tags','traces_tags','labels_tags','packaging','packaging_tags','packagings','categories_tags','categories',
@@ -20,15 +17,17 @@ const FIELDS = ['code','product_name','product_name_en','generic_name','brands',
 
 // ---------------- navigation ----------------
 function show(v){
-  ['scan','result','history','cal','month','me'].forEach(n => $('#v-'+n).classList.toggle('hidden', n !== v));
+  ['scan','result','history','cal','month','recipes','me'].forEach(n => $('#v-'+n).classList.toggle('hidden', n !== v));
   document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
   if (v !== 'scan') stopScan();
   $('#fab').classList.toggle('hidden', v !== 'result');
+  if (v === 'result'){ const mb = document.getElementById('mealBar'); if (mb) mb.remove(); $('#v-result').classList.remove('hasbar'); }
   if (v === 'scan'){ renderRecent(); if (!picksLoaded && typeof PICKS !== 'undefined' && PICKS) loadPicks(pickTab); }
   if (v === 'history') renderHistory();
   if (v === 'me') renderMyProducts();
   if (v === 'cal' && window.FSCal) FSCal.render();
   if (v === 'month' && window.FSCal) FSCal.renderMonth();
+  if (v === 'recipes' && window.FSCal) FSCal.renderRecipes();
   if (v === 'result' && !$('#v-result').innerHTML.trim())
     $('#v-result').innerHTML = '<div class="card"><p class="muted">No result yet — scan something first.</p></div>';
   window.scrollTo(0, 0);
@@ -56,7 +55,7 @@ let toastT = null;
 function toast(msg){ const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 1800); }
 
 function renderRecent(){
-  const h = store.get('fs_hist', []).filter(x => x.kind !== 'clothing');
+  const h = store.get('fs_hist', []).filter(x => !['clothing', 'beauty', 'pet', 'products'].includes(x.kind) && !x.cos);
   $('#recentWrap').classList.toggle('hidden', !h.length);
   $('#recent').innerHTML = h.slice(0, 12).map(x => `<div class="rc" data-c="${esc(x.code)}">
     <div class="top">${x.img ? `<img src="${esc(x.img)}" alt="">` : `<div class="ph">${x.emoji || ({beauty:'🧴', pet:'🐾', products:'🧽', produce:'🥬', medicine:'💊'}[x.kind] || (x.cos ? '🧴' : '🛒'))}</div>`}
@@ -65,6 +64,7 @@ function renderRecent(){
   $('#recent').querySelectorAll('.rc').forEach(el => el.onclick = () => lookup(el.dataset.c));
 }
 $('#seeAll').onclick = () => show('history');
+$('#histBtn').onclick = () => show('history');
 $('#btnSources').onclick = () => FSInfo.sources(); $('#btnPrivacy').onclick = () => FSInfo.privacy(); $('#btnAbout').onclick = () => FSInfo.about();
 const setOffline = () => $('#offline').classList.toggle('hidden', navigator.onLine !== false);
 window.addEventListener('online', setOffline); window.addEventListener('offline', setOffline); setOffline();
@@ -311,8 +311,7 @@ async function doQuery(){
     const scored = list.slice(0, 16).map(p => {
       let sc = null;
       try{
-        if (p._src !== 'food'){ const a = nonFoodAnalyse(p, p._src); if (!a.noIngredients) sc = a.score; }
-        else if ((p.nutriments && Object.keys(p.nutriments).length > 2) || p.ingredients_text){ sc = analyse(p).score; }
+        if ((p.nutriments && Object.keys(p.nutriments).length > 2) || p.ingredients_text){ sc = analyse(p).score; }
       }catch(e){}
       return {p, sc};
     });
@@ -327,7 +326,7 @@ async function doQuery(){
   }catch(e){ $('#searchRes').innerHTML = '<div class="err">Search failed — check your internet connection.</div>'; }
 }
 async function searchProducts(q, au){
-  const lists = await Promise.all([[API,'food'],[BAPI,'beauty'],[PAPI,'pet'],[OPAPI,'products']].map(([b, s]) => searchOne(b, q, au, s).catch(() => [])));
+  const lists = await Promise.all([[API,'food']].map(([b, s]) => searchOne(b, q, au, s).catch(() => [])));
   const out = []; const n = Math.max(...lists.map(l => l.length));
   for (let i = 0; i < n; i++) for (const l of lists) if (l[i]) out.push(l[i]);
   return out;
@@ -375,34 +374,31 @@ async function getProduct(code){
 }
 async function getProductLive(code){
   const custom0 = store.get('fs_custom', {})[code];
-  const custom = custom0 && custom0._src !== 'clothing' ? custom0 : null;
+  const custom = custom0 && !['clothing', 'beauty', 'pet', 'products'].includes(custom0._src) ? custom0 : null;
   if (custom) return {p: custom, src: custom._src || 'food', custom: true};
   if (window.FSProduce && /^9?\d{4}$/.test(code)){ const pr = FSProduce.build(code); return pr ? {p: pr, src: 'food', produce: true} : null; }
   let netFail = 0, tried = 0, weak = null;
   for (const c of variants(code)){
     tried++;
-    const res = await Promise.all([API, BAPI, PAPI, OPAPI].map(b => getOne(b, c).catch(e => e)));
-    let [food, beauty, petf, prod] = res.map(x => x instanceof Error ? null : x);
+    const res = await Promise.all([API].map(b => getOne(b, c).catch(e => e)));
+    let [food] = res.map(x => x instanceof Error ? null : x);
     // skincare that someone filed in the food database (e.g. "Non food products, Open Beauty Facts")
     const nonFood = x => x && /non-food|open-beauty-facts|cosmetic|body-lotion|body-cream|moisturi[sz]|skin-care|skincare|shampoo|deodorant|hygiene|toiletr/.test(((x.categories_tags || []).join(' ') + ' ' + (x.categories || '')).toLowerCase());
-    if (food && nonFood(food)){ if (!beauty) beauty = Object.assign({}, food, {_movedFromFood: true}); food = null; }
+    if (food && nonFood(food)) food = null;   // skincare etc. filed in the food database — not handled
     if (res.every(x => x instanceof Error)){ netFail++; continue; }
     const foodLike = food && ((food.nutriments && Object.keys(food.nutriments).length > 2) || (food.categories_tags || []).length);
     const thin = x => !(x.ingredients_text || x.ingredients_text_en || (x.ingredients || []).length);
     if (food && foodLike) return {p: food, src: 'food'};
-    if (beauty && !thin(beauty)) return {p: beauty, src: 'beauty'};
-    if (petf) return {p: petf, src: 'pet'};
-    if (prod && !thin(prod)) return {p: prod, src: 'products'};
     // found, but with little info — check the health databases first, fall back to this
-    if (!weak) weak = beauty ? {p: beauty, src: 'beauty'} : food ? {p: food, src: 'food'} : prod ? {p: prod, src: 'products'} : null;
+    if (!weak && food) weak = {p: food, src: 'food'};
   }
   const [u, h] = await Promise.all([getUSDA(code).catch(() => null), window.FSHealth ? FSHealth.lookup(code).catch(() => null) : null]);
   if (u) return {p: u, src: 'food'};
-  if (h) return h;
+  if (h && (h.src === 'food' || h.src === 'medicine')) return h;
   if (weak) return weak;
   if (netFail === tried){
     const c = store.get('fs_cache', {})[code];
-    if (c) return {p: c.p, src: c.src, cached: true};
+    if (c && (c.src === 'food' || c.src === 'medicine')) return {p: c.p, src: c.src, cached: true};
     throw new Error('net');
   }
   return null;
@@ -466,19 +462,7 @@ function display(got, code){
       store.set('fs_hist', h.slice(0, 50));
       return;
     }
-    if (got.src !== 'food'){
-      const r = nonFoodAnalyse(p, got.src);
-      renderCos(r);
-      enhanceResult(r);
-      addSourceNote(p, got);
-      if (!r.noIngredients){
-        const h = store.get('fs_hist', []).filter(x => x.code !== r.code);
-        h.unshift({code:r.code, name:r.name, brand:r.brand, score:r.score, kind:got.src, cos:got.src === 'beauty', img:p.image_front_small_url || '', ts:Date.now()});
-        store.set('fs_hist', h.slice(0, 50));
-        findCosAlternatives(p, r, got.src).catch(() => { const el = $('#alts'); if (el) el.innerHTML = '<p class="muted">Couldn\'t load alternatives right now.</p>'; });
-      }
-      return;
-    }
+    if (got.src !== 'food'){ renderAddForm(code); return; }   // HealthierSlop only handles food, drinks, supplements & medicines
     const r = analyse(p);
     renderResult(r, p);
     enhanceResult(r);
@@ -505,19 +489,7 @@ function display(got, code){
     findAlternatives(p, r).catch(() => { const el = $('#alts'); if (el) el.innerHTML = '<p class="muted">Couldn\'t load alternatives right now.</p>'; });
 }
 
-const KIND_ICON = {beauty:'🧴 ', pet:'🐾 ', products:'🧽 ', food:''};
-function nonFoodAnalyse(p, src){
-  const helpers = {clamp, cap, nameOf};
-  const r = src === 'pet' ? FSOther.pet(p, me, helpers) : src === 'products' ? FSOther.household(p, me, helpers) : FSCos.analyse(p, me, helpers);
-  r.src = src; r.srcName = SRC[src][0]; r.srcBase = SRC[src][1];
-  r.bc = window.FSEnv ? FSEnv.barcodeCountry(p.code) : null;
-  if (!r.noIngredients && window.FSEnv){
-    r.env = FSEnv.nonFood(p, src === 'products' ? 'household' : src, r.ingText || (p.ingredients_text || ''));
-    r.envPenalty = (me.envPref || []).includes('Count environmental impact in the score') ? r.env.penalty : 0;
-    if (r.envPenalty) r.score = Math.max(0, r.score - r.envPenalty);
-  }
-  return r;
-}
+const KIND_ICON = {food:''};
 function addSourceNote(p, got){
   const last = [...document.querySelectorAll('#v-result .card')].pop(); if (!last) return;
   const firstP = last.querySelector('p.muted');
@@ -526,7 +498,7 @@ function addSourceNote(p, got){
     const b = document.createElement('button'); b.className = 'btn ghost'; b.style.marginTop = '10px'; b.textContent = '✏️ Edit this product';
     b.onclick = () => renderAddForm(p.code, p); last.appendChild(b);
     if (!/^9?\d{4}$/.test(p.code)){
-      const base = SRC[p._src || got.src || 'food'][1], name = SRC[p._src || got.src || 'food'][0];
+      const base = SRC.food[1], name = SRC.food[0];
       const a = document.createElement('a'); a.className = 'btn ghost'; a.style.marginTop = '8px'; a.target = '_blank'; a.rel = 'noopener';
       a.href = p._inDb ? `${base}/product/${encodeURIComponent(p.code)}` : `${base}/cgi/product.pl?type=add&code=${encodeURIComponent(p.code)}`;
       a.textContent = `🌍 ${p._inDb ? 'Update' : 'Add'} it on ${name}`;
@@ -542,7 +514,7 @@ function addSourceNote(p, got){
 
 // ---------------- My products: list, export, import, share ----------------
 const KIND_EMOJI = {food:'🛒', beauty:'🧴', pet:'🐾', products:'🧽'};
-function myProducts(){ const a = store.get('fs_custom', {}); return Object.fromEntries(Object.entries(a).filter(([, p]) => p._src !== 'clothing')); }
+function myProducts(){ const a = store.get('fs_custom', {}); return Object.fromEntries(Object.entries(a).filter(([, p]) => !['clothing', 'beauty', 'pet', 'products'].includes(p._src))); }
 function renderMyProducts(){
   const all = myProducts(), list = Object.values(all).sort((a, b) => (b._updated || 0) - (a._updated || 0));
   $('#myCount').textContent = list.length ? `${list.length} product${list.length > 1 ? 's' : ''} you've added. Back them up, or share them with friends and family so their app knows them too.` : 'Nothing yet. When a product isn\'t found (or is incomplete), add it from the label and it shows up here.';
@@ -618,12 +590,12 @@ function renderAddForm(code, pre){
   $('#v-result').innerHTML = `
   ${pre && !pre._hint ? '' : `<div class="card"><h2>🤔 Not in any database yet</h2>
     <p class="muted">${/^9?\d{4}$/.test(code) ? `Sticker code <b>${esc(code)}</b> isn't in the built-in fruit &amp; veg list (it covers about 300 common items). Try searching the name, e.g. "mango".` : instore ? 'This looks like an <b>in-store barcode</b> (bakery, deli or weighed items). These are unique to each store, so no database has them.' :
-      `Barcode ${esc(code)} isn't in Open Food Facts, Open Beauty Facts, Open Pet Food Facts, Open Products Facts, USDA, the NIH supplement database or FDA medicine labels yet. Lots of Australian supermarket, pharmacy and bakery products are missing.`}</p></div>`}
+      `Barcode ${esc(code)} isn't in Open Food Facts, USDA, the NIH supplement database or FDA medicine labels yet. Lots of Australian supermarket and bakery products are missing.`}</p></div>`}
   ${pre && pre._fromDb ? '' : `<button class="btn ghost" id="byName" style="margin:-4px 0 12px">🔎 Search the databases by name instead</button>`}
   <div class="card"><h2>📸 ${pre && pre._fromDb ? 'Complete it from the label' : pre && !pre._hint ? 'Edit product' : 'Add it from the label'}</h2>${pre && pre._hint ? `<div class="note" style="margin-bottom:10px"><span>Found the name in ${esc(pre._hint)}:</span> <b class="notr">${esc(pre.product_name)}${pre.brands ? ' · ' + esc(pre.brands) : ''}</b><br><span>It doesn't list ingredients, so add them below.</span></div>` : ''}
     <p class="muted">Snap the ingredients and the nutrition panel. The app reads them on your phone, scores the product, and remembers it, so next time it comes straight up.</p>
     <label class="lbl">What is it?</label>
-    <div class="chips" id="aKind"><span class="chip ${kind0 === 'food' ? 'on' : ''}" data-k="food">🍞 Food / drink / supplement</span><span class="chip ${kind0 === 'beauty' ? 'on' : ''}" data-k="beauty">🧴 Personal care</span><span class="chip ${kind0 === 'pet' ? 'on' : ''}" data-k="pet">🐾 Pet food</span><span class="chip ${kind0 === 'products' ? 'on' : ''}" data-k="products">🧽 Household</span></div>
+    <div class="chips hidden" id="aKind"><span class="chip on" data-k="food">Food / drink / supplement</span></div>
     <label class="lbl">Product name</label>
     <input class="field" id="aName" placeholder="e.g. Wholemeal sandwich bread" value="${esc(pre ? pre.product_name : '')}">
     <input class="field" id="aBrand" placeholder="Brand (optional)" value="${esc(pre && pre.brands ? pre.brands : ownBrandOf(code))}">
@@ -635,7 +607,7 @@ function renderAddForm(code, pre){
     <label class="btn ghost" for="ocrIng" style="margin-top:8px">📸 Photo of the ingredients</label>
     <input type="file" id="ocrIng" accept="image/*" capture="environment" style="display:none">
     <textarea class="field" id="aIng" placeholder="…or type / paste them here">${esc(pre ? pre.ingredients_text : '')}</textarea>
-    <div id="nutBox" class="${kind0 === 'beauty' || kind0 === 'products' ? 'hidden' : ''}">
+    <div id="nutBox">
       <label class="lbl">Nutrition per 100g</label>
       <label class="btn ghost" for="ocrNut" style="margin-top:8px">📸 Photo of the nutrition panel</label>
       <input type="file" id="ocrNut" accept="image/*" capture="environment" style="display:none">
@@ -646,7 +618,7 @@ function renderAddForm(code, pre){
     <button class="btn primary" id="aGo" style="margin-top:12px">Score it</button>
     <button class="btn ghost" id="aBack" style="margin-top:8px">Cancel</button>
   </div>`;
-  let kind = kind0;
+  let kind = 'food';
   if ($('#byName')) $('#byName').onclick = () => {
     show('scan'); const q = $('#q');
     q.value = pre && pre._hint ? [pre.brands, pre.product_name].filter(Boolean).join(' ').replace(/\b\d+\s?(ml|g|oz|fl ?oz|pack|ct)\b/gi, '').trim() : '';
@@ -1387,7 +1359,7 @@ function renderResult(r, p){
   <div class="card"><p class="muted">Barcode ${esc(r.code)} · Data from <a href="https://world.openfoodfacts.org/product/${encodeURIComponent(r.code)}" target="_blank" rel="noopener" style="color:var(--brand)">Open Food Facts</a>. General info, not medical advice.</p>
     <button class="btn primary" style="margin-top:12px" id="again">Scan another</button></div>`;
   $('#again').onclick = () => { show('scan'); startScan(); };
-  if (window.FSCal) FSCal.mountLog($('#calLog'), {name: r.name, brand: r.brand, code: r.code, score: r.score, N: r.N, nutriments: (p || {}).nutriments || {}, isDrink: r.isDrink, produce: !!r.produce,
+  if (window.FSCal) FSCal.mountLog($('#calLog'), {name: r.name, brand: r.brand, code: r.code, score: r.score, abv: r.alc && r.alc.abv ? r.alc.abv : null, N: r.N, nutriments: (p || {}).nutriments || {}, isDrink: r.isDrink, produce: !!r.produce,
     serving: gramsOf((p || {}).serving_size), pack: r.produce ? null : gramsOf((p || {}).quantity)});
 }
 
@@ -1427,104 +1399,8 @@ function animalCard(r){
     ${r.animalPenalty ? `<div class="note">−${r.animalPenalty} points taken off the score for animal welfare. You can turn this off in Settings.</div>` : ''}
   </div>`;
 }
-function renderCos(r){
-  if (r.noIngredients){
-    $('#v-result').innerHTML = `<div class="card">${r.img ? `<img class="pimg" src="${esc(r.img)}" alt="">` : ''}<h2>${esc((r.kindLabel || '🧴').split(' ')[0])} ${esc(r.name)}</h2>
-      <p class="muted">${esc(r.brand)}</p><p style="margin-top:10px">Found it in ${esc(r.srcName || 'Open Beauty Facts')}, but there's no ingredient list yet, so it can't be scored. Tap <b>Add from label</b> to snap the ingredients — the app will remember it.</p>
-      <button class="btn ghost" style="margin-top:12px" id="addLbl">📸 Add from label</button>
-      <p style="margin-top:10px"><a href="${esc(r.srcBase || BAPI)}/product/${encodeURIComponent(r.code)}" target="_blank" rel="noopener" style="color:var(--brand);font-weight:600">Open on ${esc(r.srcName || 'Open Beauty Facts')} →</a></p>
-      <button class="btn primary" style="margin-top:14px" id="again">Scan another</button></div>`;
-    $('#again').onclick = () => { show('scan'); startScan(); };
-    $('#addLbl').onclick = () => renderAddForm(r.code, {product_name: r.name, brands: r.brand, quantity: r.qty, ingredients_text: '', nutriments: {}, _src: r.src || 'beauty', _fromDb: true, image_front_url: r.img, categories_tags: r.cats});
-    return;
-  }
-  const s = r.score, c = col(s), C = 2 * Math.PI * 50;
-  $('#v-result').innerHTML = `
-  ${r.warnings.length ? `<div class="warn">⚠️ ${r.warnings.map(esc).join('<br>')}</div>` : ''}
-  ${r.flags.length ? `<div class="flag">🌸 ${r.flags.map(esc).join('<br>')}</div>` : ''}
-  <div class="card">
-    ${r.img ? `<img class="pimg" src="${esc(r.img)}" alt="">` : ''}
-    <div class="hero">
-      <div class="ring"><svg width="118" height="118" viewBox="0 0 118 118"><circle cx="59" cy="59" r="50" fill="none" stroke="var(--line)" stroke-width="11"/>
-        <circle cx="59" cy="59" r="50" fill="none" stroke="${c}" stroke-width="11" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - s / 100)}"/></svg>
-        <div class="num"><div><b>${s}</b><small>/ 100</small></div></div></div>
-      <div>
-        <h3>${esc(r.name)}</h3>
-        <div class="brand">${esc([r.brand, r.qty].filter(Boolean).join(' · '))}</div>
-        <span class="grade" style="background:${c}">${label(s)}</span>
-        ${r.bc ? `<div class="brand" style="margin-top:-6px">${bcText(r.bc)}</div>` : ''}
-        <span class="pill" style="margin-left:6px">${esc(r.kindLabel || '🧴 Personal care')}</span>
-        ${r.env ? envPill(r.env) : ''}
-        ${r.animal ? `<span class="pill" style="margin-top:6px;${r.animal.certified ? '' : 'background:var(--soft);color:var(--muted)'}">${esc(r.animal.badge)}</span>` : ''}
-      </div>
-    </div>
-    <p style="margin-top:14px;font-size:15px">${esc(r.summary)}</p>
-  </div>
-
-  <div class="card"><h2>${s < 65 ? '🔁 Better alternatives' : '✨ Similar or better picks'}</h2><div id="alts"><p class="muted">Finding better options…</p></div></div>
-
-  <div class="card"><h2>📊 Score breakdown</h2>
-    ${r.breakdown.map(b => { const p = b.points / b.max; return `<div class="factor"><div class="top"><span>${esc(b.factor)}</span><span>${b.points}/${b.max}</span></div>
-      <div class="bar"><i style="width:${p * 100}%;background:${col(p * 100)}"></i></div><p>${esc(b.note)}</p></div>`; }).join('')}
-  </div>
-
-  <div class="card"><h2>🧍 Effects on your skin & body</h2><ul class="plain">${r.effects.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>
-
-  ${r.animal ? animalCard(r) : ''}
-  ${r.env ? envCard(r) : ''}
-
-  <div class="card"><h2>🧪 Ingredients of concern</h2>
-    ${r.concerns.length ? r.concerns.map(a => `<div class="item"><span class="dot" style="background:${riskCol[a.level]}"></span><div><b>${esc(a.label)}</b> <span class="muted">— ${a.level} concern</span><p>${esc(a.note)}</p></div></div>`).join('')
-      : '<p class="muted">Nothing of real concern found. 👍</p>'}
-  </div>
-
-  <div class="card"><h2>📝 Full ingredient list</h2>
-    ${r.ingredients.map(i => `<div class="item"><span class="dot" style="background:${flagCol[i.flag]}"></span><div><b>${esc(i.name)}</b>${i.note ? `<p>${esc(i.note)}</p>` : ''}</div></div>`).join('')}
-  </div>
-
-  <div class="card"><p class="muted">Barcode ${esc(r.code)} · Data from <a href="${esc(r.srcBase || BAPI)}/product/${encodeURIComponent(r.code)}" target="_blank" rel="noopener" style="color:var(--brand)">${esc(r.srcName || 'Open Beauty Facts')}</a>. Based on the ingredient list, not lab tests. General info, not medical advice.</p>
-    <button class="btn primary" style="margin-top:12px" id="again">Scan another</button></div>`;
-  $('#again').onclick = () => { show('scan'); startScan(); };
-}
-
-async function findCosAlternatives(p, r, src){
-  src = src || 'beauty';
-  const BASE = SRC[src][1];
-  const cats = (p.categories_tags || []).filter(c => c.startsWith('en:')).slice(-3).reverse();
-  let found = [];
-  for (const cat of cats){
-    for (const au of [true, false]){
-      let url = `${BASE}/api/v2/search?categories_tags=${encodeURIComponent(cat)}&fields=${FIELDS}&page_size=50&sort_by=popularity_key`;
-      if (au){ if (!regionTag()) continue; url += '&countries_tags=' + encodeURIComponent(regionTag()); }
-      try{
-        const j = await (await fetch(url)).json();
-        (j.products || []).filter(x => x.code && x.code !== p.code && nameOf(x) !== 'Unnamed product' && (x.categories_tags || []).includes(cat)).forEach(x => {
-          const a = nonFoodAnalyse(x, src);
-          if (!a.noIngredients && a.score > r.score + 4) found.push({p:x, r:a});
-        });
-      }catch(e){}
-      const seen = new Set(); found = found.sort((a, b) => b.r.score - a.r.score).filter(f => { const k = (f.r.name + f.r.brand).toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; });
-      if (found.length >= 3) break;
-    }
-    if (found.length >= 3) break;
-  }
-  const box = $('#alts'); if (!box) return;
-  if (!found.length){
-    box.innerHTML = r.score >= 65 ? '<p class="muted">This is already one of the better options. 👍</p>'
-      : `<p class="muted">Couldn't find a clearly better one in the database. Tip: ${src === 'pet' ? 'look for a named meat first, no artificial colours or BHA/BHT/ethoxyquin, and a "complete & balanced" claim' : src === 'products' ? 'look for an eco-label (EU Ecolabel, GECA), fragrance-free, and refills or concentrates' : 'look for fragrance-free, paraben-free formulas with a short ingredient list'}.</p>`;
-    return;
-  }
-  box.innerHTML = found.slice(0, 3).map(f => {
-    const fewer = r.concerns.length - f.r.concerns.length;
-    const why = [fewer > 0 ? `${fewer} fewer ingredient${fewer > 1 ? 's' : ''} of concern` : '', r.fragrance && !f.r.fragrance ? 'fragrance-free' : '', f.r.goodList.length > r.goodList.length ? 'more skin-friendly ingredients' : ''].filter(Boolean).join(', ') || 'Scores better overall';
-    return `<div class="alt" data-c="${esc(f.r.code)}">${f.p.image_front_small_url ? `<img src="${esc(f.p.image_front_small_url)}" alt="">` : ''}
-      <div style="flex:1"><b>${esc(f.r.name)}</b><p>${esc(f.r.brand)}</p><p>${esc(cap(why))}</p></div>
-      <div class="sc" style="background:${col(f.r.score)}">${f.r.score}</div></div>`; }).join('');
-  box.querySelectorAll('.alt').forEach(a => a.onclick = () => lookup(a.dataset.c));
-}
-
 function renderHistory(){
-  const h = store.get('fs_hist', []).filter(x => x.kind !== 'clothing');
+  const h = store.get('fs_hist', []).filter(x => !['clothing', 'beauty', 'pet', 'products'].includes(x.kind) && !x.cos);
   $('#histList').innerHTML = h.length ? h.map(x => `<div class="hist" data-c="${esc(x.code)}"><div class="sc" style="background:${typeof x.score === 'number' ? col(x.score) : 'var(--muted)'}">${x.score}</div>
     <div><b>${x.emoji ? x.emoji + ' ' : ({beauty:'🧴 ', pet:'🐾 ', products:'🧽 '}[x.kind] || (x.cos ? '🧴 ' : ''))}${esc(x.name)}</b><span>${esc(x.brand || '')} · ${new Date(x.ts).toLocaleDateString('en-AU')}</span></div></div>`).join('')
     : '<p class="muted">Nothing yet. Your scans will show up here.</p>';
@@ -1535,8 +1411,8 @@ function renderHistory(){
 // Popular products in your shopping country, scored by HealthierSlop; only the high scorers are shown.
 var PICKS = {
   food: {min: 75, q: [[API, 'food', 'categories', 'breakfast-cereals'], [API, 'food', 'categories', 'yogurts'], [API, 'food', 'categories', 'breads'], [API, 'food', 'categories', 'nuts'], [API, 'food', 'categories', 'fruit-juices']]},
-  skin: {min: 70, q: [[BAPI, 'beauty', 'search', 'moisturiser'], [BAPI, 'beauty', 'search', 'face cream'], [BAPI, 'beauty', 'search', 'sunscreen'], [BAPI, 'beauty', 'search', 'cleanser']]},
-  hyg:  {min: 70, q: [[BAPI, 'beauty', 'search', 'deodorant'], [BAPI, 'beauty', 'search', 'shampoo'], [BAPI, 'beauty', 'search', 'toothpaste'], [BAPI, 'beauty', 'search', 'body wash'], [BAPI, 'beauty', 'search', 'soap']]}
+  drink: {min: 70, q: [[API, 'food', 'categories', 'waters'], [API, 'food', 'categories', 'plant-based-milks'], [API, 'food', 'categories', 'teas'], [API, 'food', 'categories', 'milks'], [API, 'food', 'categories', 'kombuchas']]},
+  snack: {min: 70, q: [[API, 'food', 'categories', 'nuts'], [API, 'food', 'categories', 'dried-fruits'], [API, 'food', 'categories', 'crackers'], [API, 'food', 'categories', 'rice-cakes'], [API, 'food', 'categories', 'seeds']]}
 };
 var pickTab = 'food', picksLoaded = false, pickSeq = 0;
 async function pickQuery(base, src, kind, term, region){
@@ -1552,7 +1428,7 @@ function scorePick(p){
       if (!((p.nutriments && Object.keys(p.nutriments).length > 2) && (p.ingredients_text || (p.ingredients || []).length))) return null;
       return analyse(p).score;
     }
-    const a = nonFoodAnalyse(p, p._src); return a.noIngredients ? null : a.score;
+    return null;
   }catch(e){ return null; }
 }
 async function loadPicks(tab){
@@ -1605,7 +1481,7 @@ if (!standalone && /iphone|ipad|ipod/i.test(navigator.userAgent)){
   $('#installTxt').innerHTML = 'In Safari, tap the <b>Share</b> button <span style="font-size:16px">⬆︎</span> then <b>Add to Home Screen</b>.';
 }
 renderRecent();
-window.FSApp = {show, startScan, lookup};
+window.FSApp = {show, startScan, lookup, analyse};
 show('cal');
 if ('serviceWorker' in navigator && !FSNative.native && location.protocol === 'https:') window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
 })();
