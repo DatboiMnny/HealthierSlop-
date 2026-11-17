@@ -51,6 +51,17 @@ document.querySelectorAll('#themeSeg button').forEach(b => b.onclick = () => {
   themePref = b.dataset.t; try{ localStorage.setItem('fs_theme', themePref); }catch(e){}
   applyTheme(themePref); toast(themePref === 'dark' ? '🌙 Dark mode on' : themePref === 'light' ? '☀️ Light mode on' : '📱 Matching your phone');
 });
+// Liquid Glass look (on by default)
+function applyGlass(on){
+  document.documentElement.classList.toggle('lg', on);
+  document.querySelectorAll('#glassSeg button').forEach(b => b.classList.toggle('on', (b.dataset.g === '1') === on));
+}
+let glassOn = true; try{ glassOn = localStorage.getItem('fs_glass') !== '0'; }catch(e){}
+applyGlass(glassOn);
+document.querySelectorAll('#glassSeg button').forEach(b => b.onclick = () => {
+  glassOn = b.dataset.g === '1'; try{ localStorage.setItem('fs_glass', glassOn ? '1' : '0'); }catch(e){}
+  applyGlass(glassOn); toast(glassOn ? '✨ Liquid Glass on' : 'Liquid Glass off');
+});
 let toastT = null;
 function toast(msg){ const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 1800); }
 
