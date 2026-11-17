@@ -993,7 +993,7 @@ function suggestionsHtml(){
   const ing = new Map();
   S.list.forEach(x => x.r.items.forEach(it => { const k = it.food.name; if (typeof it.food.score === 'number' && !ing.has(k)) ing.set(k, {n: k, s: it.food.score, mine: x.used.some(u => u.name === k)}); }));
   const top = [...ing.values()].sort((a, b) => (b.mine - a.mine) || b.s - a.s).slice(0, 10);
-  return `<p class="muted" style="margin:0 2px 10px">Meal ideas built from the highest-rated foods in HealthierSlop${S.mine.length ? ' — your own top-rated foods are swapped in where they fit' : ''}. Save one to make it yours, or log it straight away.</p>
+  return `<h3 class="sgh">Quick ideas</h3><p class="muted" style="margin:0 2px 10px">Meal ideas built from the highest-rated foods in HealthierSlop${S.mine.length ? ' — your own top-rated foods are swapped in where they fit' : ''}. Save one to make it yours, or log it straight away.</p>
     ${top.length ? `<div class="card sgtop"><b>Top-rated ingredients</b><div class="sgchips">${top.map(t => `<span class="sgchip${t.mine ? ' mine' : ''}"><i style="background:${scoreCol(t.s)}">${t.s}</i><span class="notr">${esc(t.n)}</span></span>`).join('')}</div>${S.mine.length ? '' : '<p class="muted" style="margin-top:8px">Log foods that score 70+ and they\'ll show up in these ideas.</p>'}</div>` : ''}
     <div class="chips sgmeal" id="sgMeal">${[['all', 'All'], ...MEALS].map(([k, n]) => `<span class="chip${sugMeal === k ? ' on' : ''}" data-m="${k}">${n}</span>`).join('')}</div>
     ${S.filtered ? '<p class="muted" style="margin:6px 2px 0">Matching your diet & avoid list in Settings.</p>' : ''}
@@ -1045,6 +1045,404 @@ function bindSuggestions(el){
   });
 }
 
+// ---------------- meal prep search: TheMealDB recipes (free test key) ----------------
+// Recipes come from TheMealDB; calories, macros and the health score are worked out here from a built-in ingredient table,
+// because the database has no nutrition. Swap MEALDB_KEY for a supporter key before an App Store release.
+const MEALDB_KEY = '1', MEALDB = `https://www.themealdb.com/api/json/v1/${MEALDB_KEY}/`;
+// [match, kcal, protein, carbs, sugars, fat, sat fat, fibre, sodium mg (per 100g), grams each, grams per cup, OFF categories, NOVA]
+// Order matters: more specific names first.
+const ING = [
+  ['stock cube|bouillon cube|oxo|stock pot', 250, 10, 15, 5, 15, 8, 0, 20000, 10, 100, 'broths,bouillon-cubes', 4],
+  ['stock|broth|bouillon', 5, .5, .4, .3, .2, .1, 0, 350, 240, 240, 'broths', 3],
+  ['coconut milk', 197, 2, 2.8, 2, 21, 19, 0, 13, 400, 240, 'plant-based-milks,coconut-milks', 3],
+  ['coconut cream', 330, 3.6, 6.7, 3, 35, 30, 2.2, 4, 400, 240, 'coconut-creams', 3],
+  ['desiccated coconut|shredded coconut', 660, 6.9, 24, 7, 64, 57, 16, 37, 30, 93, 'dried-fruits,coconuts', 1],
+  ['coconut oil', 892, 0, 0, 0, 99, 82, 0, 0, 14, 218, 'fats,vegetable-oils,coconut-oils', 2],
+  ['olive oil', 884, 0, 0, 0, 100, 14, 0, 0, 14, 216, 'fats,vegetable-oils,olive-oils,extra-virgin-olive-oils', 2],
+  ['sesame oil', 884, 0, 0, 0, 100, 14, 0, 0, 14, 218, 'fats,vegetable-oils,sesame-oils', 2],
+  ['vegetable oil|sunflower oil|canola oil|rapeseed oil|groundnut oil|peanut oil|corn oil|\\boil\\b', 884, 0, 0, 0, 100, 10, 0, 0, 14, 218, 'fats,vegetable-oils', 2],
+  ['ghee|lard|dripping|goose fat', 900, 0, 0, 0, 100, 60, 0, 0, 14, 205, 'fats,animal-fats', 2],
+  ['peanut butter', 588, 25, 20, 9, 50, 10, 6, 300, 16, 258, 'nut-butters,peanut-butters', 3],
+  ['butter', 717, .9, .1, .1, 81, 51, 0, 576, 15, 227, 'dairies,fats,butters', 2],
+  ['cream cheese|mascarpone|ricotta', 342, 6, 4, 3, 34, 19, 0, 321, 30, 232, 'dairies,cheeses,cream-cheeses', 3],
+  ['sour cream|creme fraiche|crème fraîche', 198, 2.4, 4.6, 3.4, 19, 11, 0, 31, 30, 230, 'dairies,creams,sour-creams', 2],
+  ['single cream|light cream|cooking cream', 195, 2.7, 4, 4, 19, 12, 0, 40, 30, 240, 'dairies,creams', 2],
+  ['cream', 340, 2.8, 2.8, 2.9, 36, 23, 0, 38, 30, 238, 'dairies,creams', 2],
+  ['condensed milk', 321, 8, 54, 54, 8.7, 5.5, 0, 127, 397, 306, 'dairies,sweetened-condensed-milks', 4],
+  ['evaporated milk', 134, 6.8, 10, 10, 7.6, 4.6, 0, 106, 375, 252, 'dairies,evaporated-milks', 3],
+  ['almond milk|oat milk|soy milk|soya milk', 30, 1, 2, 1, 1.5, .2, .3, 40, 240, 240, 'plant-based-milks', 3],
+  ['milk', 50, 3.4, 4.8, 4.8, 2, 1.2, 0, 44, 240, 245, 'dairies,milks', 1],
+  ['greek yog|greek-style yog', 97, 9, 4, 4, 5, 3, 0, 36, 170, 245, 'dairies,yogurts,greek-style-yogurts', 1],
+  ['yog', 61, 3.5, 4.7, 4.7, 3.3, 2.1, 0, 46, 170, 245, 'dairies,yogurts,plain-yogurts', 1],
+  ['parmesan|parmigiano|pecorino|grana padano', 431, 38, 4, .9, 29, 19, 0, 1600, 20, 100, 'dairies,cheeses,parmigiano-reggiano', 3],
+  ['mozzarella', 280, 22, 2.2, 1, 20, 13, 0, 630, 125, 113, 'dairies,cheeses,mozzarella', 3],
+  ['feta|halloumi|paneer|goat cheese|goats cheese', 290, 16, 2, 1, 23, 15, 0, 1000, 100, 150, 'dairies,cheeses', 3],
+  ['cheese|cheddar|gruyere|gruyère|emmental|monterey|colby|stilton|brie', 403, 25, 1.3, .5, 33, 21, 0, 620, 30, 113, 'dairies,cheeses,cheddar', 3],
+  ['egg white', 52, 11, .7, .7, .2, 0, 0, 166, 33, 243, 'eggs', 1],
+  ['egg yolk', 322, 16, 3.6, .6, 27, 9.6, 0, 48, 17, 243, 'eggs', 1],
+  ['egg noodle|rice noodle|udon|ramen|soba|vermicelli|noodle', 380, 12, 75, 2, 4, 1, 3, 20, 60, 100, 'pastas,noodles', 3],
+  ['\\beggs?\\b', 143, 12.6, .7, .4, 9.5, 3.1, 0, 140, 50, 243, 'eggs,chicken-eggs', 1],
+  ['bacon|pancetta|lardons', 400, 13, 1, 0, 38, 13, 0, 1500, 25, 140, 'meats,processed-meats,bacon', 4],
+  ['chorizo|salami|pepperoni', 455, 24, 2, 1, 38, 14, 0, 1200, 60, 140, 'meats,processed-meats,cured-meats', 4],
+  ['sausage|frankfurt|hot dog|kielbasa|merguez', 300, 12, 3, 1, 26, 9, 0, 800, 60, 140, 'meats,processed-meats,sausages', 4],
+  ['\\bham\\b|prosciutto|gammon', 145, 21, 1.5, 1, 6, 2, 0, 1200, 30, 140, 'meats,processed-meats,hams', 4],
+  ['chicken stock', 5, .5, .4, .3, .2, .1, 0, 350, 240, 240, 'broths', 3],
+  ['chicken breast', 120, 23, 0, 0, 2.6, .7, 0, 60, 170, 140, 'meats,poultries,chicken-breasts', 1],
+  ['chicken thigh|chicken leg|drumstick|chicken wing', 180, 18, 0, 0, 12, 3.5, 0, 80, 100, 140, 'meats,poultries,chicken-thighs', 1],
+  ['whole chicken', 215, 18, 0, 0, 15, 4.3, 0, 70, 1500, 140, 'meats,poultries,chickens', 1],
+  ['chicken', 170, 20, 0, 0, 10, 3, 0, 70, 150, 140, 'meats,poultries,chickens', 1],
+  ['turkey', 135, 22, 0, 0, 5, 1.4, 0, 70, 150, 140, 'meats,poultries,turkeys', 1],
+  ['duck', 337, 19, 0, 0, 28, 10, 0, 63, 200, 140, 'meats,poultries,ducks', 1],
+  ['minced beef|beef mince|ground beef|minced meat|mince', 250, 17, 0, 0, 20, 8, 0, 70, 125, 225, 'meats,beef,ground-beef', 1],
+  ['beef|steak|sirloin|brisket|veal|oxtail|chuck', 200, 21, 0, 0, 13, 5, 0, 55, 250, 140, 'meats,beef', 1],
+  ['lamb|mutton', 280, 17, 0, 0, 23, 10, 0, 60, 150, 140, 'meats,lamb', 1],
+  ['pork', 200, 19, 0, 0, 14, 5, 0, 60, 150, 140, 'meats,pork', 1],
+  ['salmon|trout|mackerel|sardine|herring', 208, 20, 0, 0, 13, 3, 0, 59, 150, 140, 'fishes,fatty-fishes,salmons', 1],
+  ['anchov', 210, 29, 0, 0, 10, 2.2, 0, 3600, 4, 140, 'fishes,anchovies', 3],
+  ['tuna', 116, 26, 0, 0, 1, .3, 0, 300, 95, 140, 'fishes,tunas', 2],
+  ['prawn|shrimp|king prawn|scampi', 85, 20, 0, 0, .5, .1, 0, 150, 15, 140, 'seafood,shrimps', 1],
+  ['mussel|clam|scallop|squid|calamari|octopus|crab|lobster|oyster(?! sauce)', 86, 15, 3, 0, 1.5, .3, 0, 300, 20, 140, 'seafood', 1],
+  ['cod|haddock|white fish|hake|basa|tilapia|sea bass|monkfish|pollock|halibut|snapper|sole|plaice|fish', 82, 18, 0, 0, .7, .1, 0, 54, 150, 140, 'fishes,white-fishes', 1],
+  ['tofu|tempeh', 144, 15, 2, .5, 8.7, 1.3, 2.3, 14, 300, 250, 'legumes,tofu', 2],
+  ['kidney bean', 127, 8.7, 23, .3, .5, .1, 7.4, 240, 240, 177, 'legumes,kidney-beans', 3],
+  ['black bean|pinto bean|borlotti', 132, 8.9, 24, .3, .5, .1, 8.7, 240, 240, 172, 'legumes,black-beans', 3],
+  ['chickpea|garbanzo', 139, 7, 22, 4, 2.6, .3, 6, 240, 240, 164, 'legumes,chickpeas', 3],
+  ['lentil|split pea|dal\\b|dhal', 352, 25, 63, 2, 1, .2, 11, 6, 75, 192, 'legumes,lentils', 1],
+  ['cannellini|butter bean|haricot|white bean|baked bean|broad bean|fava|edamame|beans$', 114, 7.3, 20, .3, .4, .1, 6.3, 230, 240, 180, 'legumes,beans', 3],
+  ['green bean|french bean|runner bean|string bean', 31, 1.8, 7, 3.3, .2, 0, 2.7, 6, 100, 100, 'vegetables,green-beans', 1],
+  ['peanut', 567, 26, 16, 4, 49, 7, 8.5, 18, 30, 146, 'nuts,peanuts', 1],
+  ['cashew', 553, 18, 30, 6, 44, 8, 3.3, 12, 30, 137, 'nuts,cashews', 1],
+  ['almond', 579, 21, 22, 4.4, 50, 3.8, 12.5, 1, 30, 143, 'nuts,almonds', 1],
+  ['walnut|pecan|hazelnut|pistachio|macadamia|pine nut|nuts', 654, 15, 14, 2.6, 65, 6, 6.7, 2, 30, 117, 'nuts,walnuts', 1],
+  ['tahini', 595, 17, 21, .5, 54, 7.5, 9, 115, 15, 240, 'seeds,sesame-pastes', 2],
+  ['sesame seed|sunflower seed|pumpkin seed|chia|flax|linseed|seeds', 573, 18, 23, .3, 50, 7, 12, 11, 10, 144, 'seeds', 1],
+  ['oat|porridge', 389, 17, 66, 1, 7, 1.2, 10.6, 2, 40, 81, 'breakfast-cereals,rolled-oats', 1],
+  ['brown rice|wild rice', 362, 7.5, 76, .9, 2.7, .5, 3.4, 4, 75, 190, 'cereals-and-potatoes,brown-rices', 1],
+  ['rice', 360, 7, 79, 0, .6, .2, 1.3, 1, 75, 185, 'cereals-and-potatoes,rices', 1],
+  ['quinoa', 368, 14, 64, 0, 6, .7, 7, 5, 60, 170, 'cereals-and-potatoes,quinoa', 1],
+  ['couscous', 376, 13, 77, 0, .6, .1, 5, 10, 60, 173, 'cereals-and-potatoes,couscous', 2],
+  ['bulgur|bulghur|freekeh|barley|farro|polenta|cornmeal|semolina', 350, 11, 74, .4, 1.5, .2, 10, 10, 60, 160, 'cereals-and-potatoes,whole-grains', 1],
+  ['wholemeal pasta|whole wheat pasta|wholewheat pasta', 348, 14, 66, 2, 2.5, .4, 9, 6, 75, 100, 'pastas,whole-wheat-pastas', 2],
+  ['spaghetti|penne|fusilli|linguine|tagliatelle|macaroni|lasagne|lasagna|farfalle|rigatoni|pappardelle|orzo|fettuccine|gnocchi|tortellini|ravioli|cannelloni|conchiglie|pasta', 371, 13, 75, 2.7, 1.5, .3, 3.2, 6, 75, 100, 'pastas', 2],
+  ['wholemeal flour|whole wheat flour|wholewheat flour|spelt flour', 340, 13, 72, .4, 2.5, .4, 10.7, 2, 0, 120, 'flours,wholemeal-flours', 1],
+  ['cornflour|cornstarch|corn starch|arrowroot', 381, .3, 91, 0, .1, 0, .9, 9, 0, 128, 'starches', 2],
+  ['flour', 364, 10, 76, .3, 1, .2, 2.7, 2, 0, 125, 'flours', 1],
+  ['breadcrumb|panko', 395, 13, 72, 6, 5, 1, 4.5, 730, 0, 108, 'breadcrumbs', 4],
+  ['tortilla|wrap|taco shell|naan|pitta|pita|flatbread|chapati|roti', 300, 8.5, 52, 3, 6, 2, 3, 550, 50, 0, 'breads,flatbreads', 4],
+  ['puff pastry|shortcrust|pastry|filo|phyllo', 520, 7, 45, 1, 34, 16, 1.5, 450, 320, 0, 'pastries,doughs', 4],
+  ['bread|baguette|ciabatta|roll|bun|brioche|toast', 265, 9, 49, 5, 3.2, .7, 2.7, 490, 35, 45, 'breads', 4],
+  ['brown sugar|muscovado|demerara|dark sugar|light brown', 380, .1, 98, 97, 0, 0, 0, 28, 0, 220, 'sweeteners,sugars,brown-sugars', 2],
+  ['sugar', 387, 0, 100, 100, 0, 0, 0, 1, 0, 200, 'sweeteners,sugars', 2],
+  ['honey', 304, .3, 82, 82, 0, 0, .2, 4, 21, 340, 'sweeteners,honeys', 1],
+  ['maple syrup|golden syrup|agave|treacle|molasses|syrup', 270, 0, 70, 65, 0, 0, 0, 30, 20, 320, 'sweeteners,syrups', 2],
+  ['jam|marmalade|preserve', 278, .4, 69, 49, .1, 0, 1, 32, 20, 320, 'spreads,jams', 4],
+  ['dark chocolate|chocolate', 546, 4.9, 61, 48, 31, 19, 7, 24, 0, 175, 'chocolates', 4],
+  ['cocoa|cacao', 228, 20, 58, 1.8, 14, 8, 37, 21, 0, 86, 'cocoa-powders', 2],
+  ['baking powder|baking soda|bicarbonate|bicarb', 53, 0, 28, 0, 0, 0, 0, 10600, 0, 192, 'baking-aids', 4],
+  ['yeast', 325, 40, 41, 0, 7.6, 1, 27, 51, 7, 140, 'baking-aids,yeasts', 2],
+  ['gelatin', 335, 86, 0, 0, 0, 0, 0, 196, 7, 150, 'gelatins', 2],
+  ['vanilla', 288, .1, 13, 13, .1, 0, 0, 9, 0, 208, 'flavourings', 2],
+  ['soy sauce|soya sauce|tamari|shoyu', 53, 8, 4.9, .4, .6, .1, .8, 5500, 0, 255, 'condiments,sauces,soy-sauces', 3],
+  ['fish sauce', 35, 5, 3.6, 3.6, 0, 0, 0, 7800, 0, 290, 'condiments,sauces,fish-sauces', 3],
+  ['oyster sauce|hoisin|teriyaki|black bean sauce', 150, 1.5, 33, 25, .5, 0, .5, 2700, 0, 290, 'condiments,sauces', 4],
+  ['sweet chilli sauce|sweet chili sauce', 220, .5, 52, 50, .5, 0, 1, 1200, 0, 290, 'condiments,sauces', 4],
+  ['hot sauce|tabasco|sriracha|harissa|chilli sauce|chili sauce|chilli paste|gochujang|sambal', 60, 1.5, 10, 6, 1, 0, 1, 2500, 0, 260, 'condiments,sauces,hot-sauces', 4],
+  ['curry paste|curry sauce|tikka paste', 180, 3, 12, 6, 13, 1.5, 4, 2500, 0, 250, 'condiments,sauces,curry-pastes', 4],
+  ['ketchup|tomato sauce|bbq sauce|barbecue sauce|brown sauce', 120, 1.5, 28, 22, .2, 0, .5, 900, 0, 240, 'condiments,sauces,ketchups', 4],
+  ['worcestershire', 78, 0, 19, 10, 0, 0, 0, 980, 0, 275, 'condiments,sauces', 4],
+  ['mayonnaise|mayo|aioli', 680, 1, .6, .6, 75, 12, 0, 635, 0, 220, 'condiments,sauces,mayonnaises', 4],
+  ['mustard(?! seed)|dijon', 66, 4, 5.8, .9, 3.3, .2, 4, 1100, 0, 250, 'condiments,mustards', 3],
+  ['pesto', 450, 5, 6, 3, 45, 7, 2, 1100, 0, 250, 'condiments,sauces,pestos', 4],
+  ['balsamic', 88, .5, 17, 15, 0, 0, 0, 23, 0, 255, 'condiments,vinegars', 2],
+  ['vinegar|mirin', 18, 0, .04, 0, 0, 0, 0, 2, 0, 240, 'condiments,vinegars', 2],
+  ['red wine|white wine|wine|sherry|marsala|brandy|rum|cider|beer|ale|stout|sake|vermouth', 85, .1, 2.6, .6, 0, 0, 0, 4, 0, 240, 'cooking-wines', 3],
+  ['chopped tomato|tinned tomato|canned tomato|plum tomatoes|crushed tomato|diced tomato', 21, 1, 4, 3, .1, 0, 1, 10, 400, 240, 'vegetables,canned-tomatoes', 3],
+  ['tomato pur[eé]e|tomato paste|sun.?dried tomato|tomato concentrate', 82, 4.3, 19, 12, .5, .1, 4.1, 59, 0, 262, 'vegetables,tomato-pastes', 3],
+  ['passata|tomato sauce for pasta', 30, 1.3, 6, 4, .2, 0, 1, 10, 0, 245, 'vegetables,tomato-sauces', 3],
+  ['tomato', 18, .9, 3.9, 2.6, .2, 0, 1.2, 5, 120, 180, 'vegetables,tomatoes', 1],
+  ['sweet potato|yam', 86, 1.6, 20, 4.2, .1, 0, 3, 55, 130, 133, 'vegetables,sweet-potatoes', 1],
+  ['potato', 77, 2, 17, .8, .1, 0, 2.2, 6, 170, 150, 'vegetables,potatoes', 1],
+  ['spring onion|scallion|green onion|chive', 32, 1.8, 7.3, 2.3, .2, 0, 2.6, 16, 15, 100, 'vegetables,onions', 1],
+  ['shallot', 72, 2.5, 17, 8, .1, 0, 3.2, 12, 25, 160, 'vegetables,onions', 1],
+  ['leek', 61, 1.5, 14, 3.9, .3, 0, 1.8, 20, 150, 90, 'vegetables,leeks', 1],
+  ['garlic powder|onion powder', 330, 15, 73, 2, .7, .2, 9, 60, 0, 136, 'spices', 1],
+  ['onion', 40, 1.1, 9.3, 4.2, .1, 0, 1.7, 4, 110, 160, 'vegetables,onions', 1],
+  ['garlic', 149, 6.4, 33, 1, .5, .1, 2.1, 17, 5, 136, 'vegetables,garlic', 1],
+  ['ground ginger|ginger powder', 335, 9, 72, 3, 4.2, 2.6, 14, 27, 0, 96, 'spices', 1],
+  ['ginger|galangal', 80, 1.8, 18, 1.7, .8, .2, 2, 13, 15, 96, 'vegetables,ginger', 1],
+  ['lemongrass', 99, 1.8, 25, 0, .5, .1, 0, 6, 15, 67, 'vegetables', 1],
+  ['carrot', 41, .9, 9.6, 4.7, .2, 0, 2.8, 69, 70, 128, 'vegetables,carrots', 1],
+  ['celery|celeriac', 16, .7, 3, 1.3, .2, 0, 1.6, 80, 40, 100, 'vegetables,celery', 1],
+  ['chilli powder|chili powder|chilli flakes|chili flakes|red pepper flakes|cayenne|paprika', 300, 13, 54, 10, 13, 2, 35, 90, 0, 100, 'spices', 1],
+  ['red pepper|green pepper|yellow pepper|orange pepper|bell pepper|capsicum|peppers', 31, 1, 6, 4.2, .3, 0, 2.1, 4, 150, 150, 'vegetables,capsicums', 1],
+  ['chilli|chili|chile|jalape|scotch bonnet|bird.?s eye', 40, 1.9, 9, 5, .4, 0, 1.5, 9, 15, 100, 'vegetables,chillies', 1],
+  ['mushroom|porcini|shiitake', 22, 3.1, 3.3, 2, .3, 0, 1, 5, 18, 70, 'vegetables,mushrooms', 1],
+  ['spinach|kale|chard|silverbeet|rocket|arugula|watercress|lettuce|salad leaves|mixed leaves|bok choy|pak choi|cavolo', 23, 2.9, 3.6, .4, .4, 0, 2.2, 79, 30, 30, 'vegetables,leaf-vegetables,spinachs', 1],
+  ['\\bpeas?\\b|petit pois|mange.?tout|snow pea|sugar snap', 81, 5.4, 14, 5.7, .4, .1, 5.7, 5, 100, 145, 'vegetables,peas', 1],
+  ['broccoli|broccolini|tenderstem', 34, 2.8, 7, 1.7, .4, 0, 2.6, 33, 300, 90, 'vegetables,broccoli', 1],
+  ['cauliflower', 25, 1.9, 5, 1.9, .3, 0, 2, 30, 600, 107, 'vegetables,cauliflowers', 1],
+  ['cabbage|brussels|sauerkraut|kimchi', 25, 1.3, 5.8, 3.2, .1, 0, 2.5, 18, 900, 89, 'vegetables,cabbages', 1],
+  ['courgette|zucchini|squash(?! butternut)', 17, 1.2, 3.1, 2.5, .3, .1, 1, 8, 200, 124, 'vegetables,zucchinis', 1],
+  ['butternut|pumpkin', 45, 1, 11.7, 2.2, .1, 0, 2, 4, 1000, 140, 'vegetables,pumpkins', 1],
+  ['aubergine|eggplant', 25, 1, 6, 3.5, .2, 0, 3, 2, 300, 82, 'vegetables,eggplants', 1],
+  ['sweetcorn|sweet corn|\\bcorn\\b|baby corn', 86, 3.3, 19, 6.3, 1.4, .3, 2, 15, 100, 165, 'vegetables,sweet-corn', 1],
+  ['mixed veg|stir.?fry veg|frozen veg|vegetables|veggies|stir.?fry mix', 40, 2, 7, 3, .3, 0, 2.8, 30, 340, 130, 'vegetables,mixed-vegetables', 1],
+  ['asparagus|artichoke|fennel|beetroot|beet|radish|turnip|parsnip|swede|okra|cucumber|bean sprout|beansprout|water chestnut|bamboo shoot', 35, 1.5, 7, 3.5, .2, 0, 2.5, 30, 120, 120, 'vegetables', 1],
+  ['avocado', 160, 2, 8.5, .7, 14.7, 2.1, 6.7, 7, 150, 150, 'fruits,avocados', 1],
+  ['olive', 145, 1, 4, .5, 15, 2, 3.3, 1556, 4, 135, 'olives', 3],
+  ['caper', 23, 2.4, 5, .4, .9, .2, 3.2, 2964, 1, 135, 'pickles,capers', 3],
+  ['lemon juice|lime juice', 22, .4, 7, 2.5, .2, 0, .3, 1, 30, 244, 'fruit-juices', 1],
+  ['orange juice|apple juice|pineapple juice', 45, .7, 10.4, 8.4, .2, 0, .2, 1, 0, 248, 'fruit-juices', 2],
+  ['lemon|lime|orange zest|lemon zest|lime zest', 29, 1.1, 9.3, 2.5, .3, 0, 2.8, 2, 60, 212, 'fruits,citrus', 1],
+  ['raisin|sultana|currant|dried apricot|dates|prune|dried cranberr|dried fruit', 299, 3, 79, 59, .5, .1, 3.7, 11, 8, 145, 'dried-fruits', 1],
+  ['banana', 89, 1.1, 23, 12, .3, .1, 2.6, 1, 120, 150, 'fruits,bananas', 1],
+  ['apple', 52, .3, 14, 10, .2, 0, 2.4, 1, 180, 125, 'fruits,apples', 1],
+  ['berr|cherr', 45, .8, 10, 6, .4, 0, 2.5, 1, 5, 145, 'fruits,berries', 1],
+  ['orange|mandarin|clementine|grapefruit', 47, .9, 12, 9.4, .1, 0, 2.4, 0, 150, 180, 'fruits,oranges', 1],
+  ['mango|pineapple|peach|pear|plum|apricot|kiwi|grape|melon|fig|pomegranate|passion ?fruit|papaya|rhubarb|fruit', 55, .7, 14, 11, .2, 0, 1.8, 2, 150, 165, 'fruits', 1],
+  ['parsley|coriander leaves|fresh coriander|cilantro|basil|mint|dill|tarragon|chervil|curry leaves|herbs|^coriander$', 30, 3, 4, .8, .6, 0, 3, 40, 1, 16, 'herbs', 1],
+  ['salt', 0, 0, 0, 0, 0, 0, 0, 38758, 0, 290, 'salts', 1],
+  ['water|ice\\b', 0, 0, 0, 0, 0, 0, 0, 0, 0, 240, 'waters', 1],
+  ['pepper|cumin|turmeric|coriander|garam masala|curry powder|cinnamon|nutmeg|clove|cardamom|oregano|thyme|rosemary|bay lea|mixed spice|italian seasoning|herbes de provence|five spice|star anise|fennel seed|mustard seed|saffron|allspice|sage|fenugreek|cajun|za.?atar|sumac|ras el hanout|spice|seasoning|kaffir|lime leaves', 300, 12, 55, 3, 10, 1.5, 30, 40, 1, 100, 'spices', 1]
+].map(r => ({re: new RegExp(r[0], 'i'), n: r.slice(1, 9), each: r[9], cup: r[10], cats: r[11], nova: r[12]}));
+const ingCache = new Map();
+function ingFood(name){                 // a TheMealDB ingredient name → a loggable food with nutrition per 100g and a score
+  const key = String(name || '').toLowerCase().trim();
+  if (!key) return null;
+  if (ingCache.has(key)) return ingCache.get(key);
+  const row = ING.find(r => r.re.test(key));
+  let food = null;
+  if (row){
+    const [kcal, p, c, sug, f, sat, fib, na] = row.n, title = key.replace(/\b\w/g, m => m.toUpperCase());
+    const prod = {code: '', product_name: title, brands: '', nova_group: row.nova, nutriments: {'energy-kj_100g': kcal * KJ, 'energy-kcal_100g': kcal, proteins_100g: p, carbohydrates_100g: c, sugars_100g: sug, fat_100g: f, 'saturated-fat_100g': sat, fiber_100g: fib, sodium_100g: na / 1000},
+      ingredients_text: key, ingredients: [{text: key}], categories_tags: row.cats.split(',').map(x => 'en:' + x), labels_tags: [], packaging_tags: []};
+    let A = null; if (kcal > 0){ try{ A = window.FSApp && FSApp.analyse ? FSApp.analyse(prod) : null; }catch(e){} }
+    food = foodFrom({name: title, brand: '', code: '', score: A ? A.score : null, N: {kj: kcal * KJ, protein: p, carbs: c, fat: f, sugar: sug, sat, fibre: fib, sodium: na}, nutriments: prod.nutriments, cats: prod.categories_tags, ing: key});
+    if (food){ food.each = row.each; food.cup = row.cup; food.fixed = null; }
+  }
+  ingCache.set(key, food);
+  return food;
+}
+const FRAC = {'½': ' 1/2', '¼': ' 1/4', '¾': ' 3/4', '⅓': ' 1/3', '⅔': ' 2/3', '⅛': ' 1/8'};
+function measureGrams(measure, food){   // "2 tbsp", "400g can", "1 1/2 cups", "3 cloves", "to taste" → grams (0 = negligible)
+  let s = String(measure || '').toLowerCase().replace(/[½¼¾⅓⅔⅛]/g, c => FRAC[c]).replace(/(\d),(\d)/g, '$1.$2').trim();
+  const each = food.each || 0, cup = food.cup || 240, dens = cup / 240;
+  const toNum = t => { t = t.trim(); const m = t.match(/^(\d+)\s+(\d+)\/(\d+)$/); if (m) return +m[1] + m[2] / m[3]; const f = t.match(/^(\d+)\/(\d+)$/); return f ? f[1] / f[2] : parseFloat(t); };
+  const nums = [...s.matchAll(/\d+\s+\d+\/\d+|\d+\/\d+|\d+(?:\.\d+)?/g)].map(m => toNum(m[0]));
+  let q = nums.length ? nums[0] : null;
+  if (q != null && /^\s*\d+(?:\.\d+)?\s*(-|–|to)\s*\d/.test(s) && nums[1]) q = (nums[0] + nums[1]) / 2;
+  // an explicit weight or volume anywhere wins: "1 can (400g)", "2 x 400g tins"
+  const w = s.match(/(\d+(?:\.\d+)?)\s*(kg|kilo|g\b|gr\b|grams?|ml|millilit\w*|cl\b|l\b|lit(?:re|er)s?)/);
+  if (w){
+    let g = +w[1]; const u = w[2];
+    if (/^k/.test(u)) g *= 1000; else if (/^(ml|millilit)/.test(u)) g *= dens; else if (u === 'cl') g *= 10 * dens; else if (/^l/.test(u)) g *= 1000 * dens;
+    const x = s.match(/(\d+)\s*x\s*\d/); if (x) g *= +x[1];
+    return Math.min(g, 6000);
+  }
+  const has = re => re.test(s);
+  if (q == null){
+    if (has(/to taste|garnish|to serve|for frying|greas|dust|season|optional|as needed|as required|^$/)) return 0;
+    q = 1;
+  }
+  let g;
+  if (has(/\boz\b|ounce/)) g = q * 28.35;
+  else if (has(/\blbs?\b|pound/)) g = q * 453.6;
+  else if (has(/cup/)) g = q * cup;
+  else if (has(/tbsp|tbs\b|tbls|tblsp|tablespoon|\btb\b|dsp|dessert ?spoon/)) g = q * cup / 16;
+  else if (has(/tsp|teaspoon/)) g = q * cup / 48;
+  else if (has(/pinch|dash|sprinkl|grind|few drops/)) g = q * .5;
+  else if (has(/splash|drizzle|glug/)) g = q * 10;
+  else if (has(/handful/)) g = q * 30;
+  else if (has(/bunch|bundle/)) g = q * (each > 40 ? each : 50);
+  else if (has(/knob/)) g = q * 15;
+  else if (has(/stick/)) g = q * (/butter/i.test(food.name) ? 113 : each || 40);
+  else if (has(/sprig|leaves|leaf|stalk(?!s of celery)/)) g = q * (each > 20 ? 40 : 1);
+  else if (has(/can|tin\b|tins\b|jar/)) g = q * 400;
+  else if (has(/packet|pack\b|pkg|bag/)) g = q * (each > 100 ? each : 250);
+  else if (has(/slice/)) g = q * (each && each < 60 ? each : 30);
+  else if (has(/clove/)) g = q * (/garlic/i.test(food.name) ? 5 : .5);
+  else if (has(/fillet|breast|thigh|piece|whole|large|medium|small|each|head|^\s*[\d.\/\s]+$/) || !has(/[a-z]/)) g = q * (each || 100) * (has(/large|big/) ? 1.3 : has(/small/) ? .7 : 1);
+  else g = q * (each || 30);
+  return Math.min(g, 6000);
+}
+const mealdbStore = () => store.get('fs_mealdb', {q: {}, m: {}});
+let mealdbOk = 0, mealdbFail = 0;
+async function mealdbGet(path){
+  let r;
+  try{ r = await fetch(MEALDB + path); }catch(e){ mealdbFail++; throw e; }
+  if (!r.ok){ mealdbFail++; throw new Error('http ' + r.status); }
+  mealdbOk++;
+  const j = await r.json(); return (j && j.meals) || [];
+}
+async function mealdbLookup(id, cache){
+  if (cache.m[id]) return cache.m[id].d;
+  const [m] = await mealdbGet('lookup.php?i=' + encodeURIComponent(id));
+  if (m) cache.m[id] = {ts: Date.now(), d: m};
+  return m || null;
+}
+const PREP_WORDS = /\b(high[- ]?protein|protein|low[- ]?carb|keto|low[- ]?cal\w*|light|healthy|lean|cheap|easy|quick|meal[- ]?prep|prep|recipes?|meals?|ideas?|for|the|a|with|and|some|make|i|want|to|week|weekly|batch|lunch(es)?|dinners?)\b/g;
+const CATS = {beef: 'Beef', chicken: 'Chicken', pork: 'Pork', lamb: 'Lamb', goat: 'Goat', seafood: 'Seafood', fish: 'Seafood', pasta: 'Pasta', vegetarian: 'Vegetarian', vegan: 'Vegan', breakfast: 'Breakfast', dessert: 'Dessert', side: 'Side', starter: 'Starter'};
+async function mealdbSearch(raw){
+  const qq = raw.toLowerCase().trim(), cache = mealdbStore();
+  const sort = /protein/.test(qq) ? 'protein' : /low[- ]?carb|keto/.test(qq) ? 'carb' : /low[- ]?cal|light|lean/.test(qq) ? 'kcal' : 'score';
+  const words = qq.replace(PREP_WORDS, ' ').replace(/[^a-z\s'-]/g, ' ').split(/\s+/).filter(w => w.length > 2);
+  const key = words.join(' ') || qq;
+  let ids = cache.q[key] && Date.now() - cache.q[key].ts < 7 * 864e5 ? cache.q[key].ids : null;
+  if (!ids){
+    const full = [], sets = [];
+    const calls = [];
+    if (words.length) calls.push(mealdbGet('search.php?s=' + encodeURIComponent(words.join(' '))).then(ms => { ms.forEach(m => { cache.m[m.idMeal] = {ts: Date.now(), d: m}; full.push(m.idMeal); }); }).catch(() => {}));
+    words.slice(0, 3).forEach(w => {
+      const cat = CATS[w.replace(/s$/, '')] || CATS[w];
+      if (cat) calls.push(mealdbGet('filter.php?c=' + cat).then(ms => sets.push(ms.map(m => m.idMeal))).catch(() => {}));
+      else calls.push(mealdbGet('filter.php?i=' + encodeURIComponent(w.replace(/s$/, '').replace(/\s+/g, '_'))).then(ms => { if (ms.length) sets.push(ms.map(m => m.idMeal)); }).catch(() => {}));
+      if (words.length > 1 || !cat) calls.push(mealdbGet('search.php?s=' + encodeURIComponent(w)).then(ms => { ms.forEach(m => { cache.m[m.idMeal] = {ts: Date.now(), d: m}; }); sets.push(ms.map(m => m.idMeal)); }).catch(() => {}));
+    });
+    if (!calls.length) return {meals: [], sort, key};
+    mealdbOk = mealdbFail = 0;
+    await Promise.all(calls);
+    if (!mealdbOk && mealdbFail) throw new Error('offline');
+    // meals that match every word first, then any word
+    const count = new Map();
+    sets.forEach(s => new Set(s).forEach(id => count.set(id, (count.get(id) || 0) + 1)));
+    full.forEach(id => count.set(id, (count.get(id) || 0) + 10));
+    ids = [...count.entries()].sort((a, b) => b[1] - a[1]).map(x => x[0]).slice(0, 24);
+    cache.q[key] = {ts: Date.now(), ids};
+  }
+  const meals = (await Promise.all(ids.slice(0, 16).map(id => mealdbLookup(id, cache).catch(() => null)))).filter(Boolean);
+  // keep the cache small
+  const ms = Object.entries(cache.m).sort((a, b) => b[1].ts - a[1].ts).slice(0, 80); cache.m = Object.fromEntries(ms);
+  const qs = Object.entries(cache.q).sort((a, b) => b[1].ts - a[1].ts).slice(0, 20); cache.q = Object.fromEntries(qs);
+  store.set('fs_mealdb', cache);
+  return {meals, sort, key};
+}
+function mealRecipe(m, serves){          // TheMealDB meal → recipe in HealthierSlop's format, with nutrition
+  const items = [], missing = [];
+  for (let i = 1; i <= 20; i++){
+    const nm = (m['strIngredient' + i] || '').trim(), ms = (m['strMeasure' + i] || '').trim();
+    if (!nm) continue;
+    const f = ingFood(nm);
+    if (!f){ missing.push(ms ? `${ms} ${nm}` : nm); continue; }
+    const g = Math.round(measureGrams(ms, f));
+    items.push({food: cleanFood(Object.assign({}, f, {name: nm.replace(/\b\w/g, c => c.toUpperCase())})), qty: g, qunit: 'g', measure: ms, raw: nm});
+  }
+  const counted = items.filter(it => it.qty > 0 && it.food.per100.kcal > 0);
+  const total = counted.reduce((a, it) => a + it.food.per100.kcal * it.qty / 100, 0);
+  const n = serves || Math.max(1, Math.min(10, Math.round(total / 550) || 1));
+  const steps = String(m.strInstructions || '').replace(/\r/g, '').split(/\n+/).map(t => t.trim()).filter(t => t && !/^step\s*\d+$/i.test(t));
+  const notes = steps.join('\n') + (missing.length ? `\n\nNot counted in the nutrition: ${missing.join(', ')}` : '') + `\n\nRecipe: TheMealDB${m.strSource ? ' · ' + m.strSource : ''}`;
+  const r = {id: 'mdb-' + m.idMeal, name: m.strMeal, serves: n, items: items.filter(it => it.qty > 0).map(it => ({food: it.food, qty: it.qty, qunit: 'g'})), notes};
+  return {m, r, f: recipeFood(r), list: items, missing, steps, total};
+}
+let prepQ = '', prepRes = null, prepBusy = false, prepErr = '';
+function prepSorted(){
+  if (!prepRes) return [];
+  const me = store.get('fs_me', {}), D = me.diets || [], avoid = String(me.avoid || '').toLowerCase().split(/[,;]+/).map(x => x.trim().replace(/s$/, '')).filter(x => x.length > 2);
+  const MEAT = /chicken|beef|pork|lamb|mutton|bacon|ham|sausage|chorizo|salami|turkey|duck|veal|goat|mince|steak|prosciutto|pancetta|anchov|fish|salmon|tuna|prawn|shrimp|cod|haddock|mussel|clam|squid|crab|lobster|gelatin|oxtail|stock(?! cube.*veg)/i;
+  const DAIRY_EGG = /milk|butter|cream|cheese|yog|egg|honey|ghee|parmesan|mozzarella|feta/i;
+  let L = prepRes.meals.map(m => mealRecipe(m));
+  const all = L.length;
+  if (D.includes('Vegetarian') || D.includes('Vegan')) L = L.filter(x => !x.list.some(it => MEAT.test(it.raw) && !/vegetable stock|veg stock/i.test(it.raw)));
+  if (D.includes('Vegan')) L = L.filter(x => !x.list.some(it => DAIRY_EGG.test(it.raw) && !/coconut|almond|oat|soy|plant|peanut butter|nut butter/i.test(it.raw)));
+  if (avoid.length) L = L.filter(x => !x.list.some(it => avoid.some(a => it.raw.toLowerCase().includes(a))));
+  const s = prepRes.sort, per = x => x.f.fixed;
+  L.sort((a, b) => s === 'protein' ? per(b).p * 400 / Math.max(1, per(b).kcal) - per(a).p * 400 / Math.max(1, per(a).kcal)
+    : s === 'carb' ? per(a).c / Math.max(1, per(a).kcal) - per(b).c / Math.max(1, per(b).kcal)
+    : s === 'kcal' ? per(a).kcal - per(b).kcal : (b.f.score || 0) - (a.f.score || 0));
+  L.hidden = all - L.length;
+  return L;
+}
+function prepHtml(){
+  const sortName = prepRes ? {protein: 'most protein per calorie', carb: 'fewest carbs', kcal: 'fewest calories per serve', score: 'health score'}[prepRes.sort] : '';
+  let body = '';
+  if (prepBusy) body = '<div class="skel"></div><div class="skel"></div><div class="skel"></div>';
+  else if (prepErr) body = `<p class="empty">${esc(prepErr)}</p>`;
+  else if (prepRes){
+    const L = prepSorted();
+    body = L.length ? `<p class="muted" style="margin:2px 2px 8px">${L.length} recipe${L.length > 1 ? 's' : ''} · sorted by ${sortName}${L.hidden ? ` · ${L.hidden} hidden by your diet or avoid list` : ''}</p>
+      <div class="rlist">${L.map(x => { const f = x.f;
+        return `<div class="card rcard mdcard" data-md="${esc(x.m.idMeal)}" role="button" tabindex="0">
+          <div class="rtop">${x.m.strMealThumb ? `<img class="mdimg" src="${esc(x.m.strMealThumb)}/preview" alt="" loading="lazy">` : ''}<div class="t"><b class="notr">${esc(x.m.strMeal)}</b><span class="notr">${esc([x.m.strArea, x.m.strCategory].filter(Boolean).join(' · '))} · makes ${x.r.serves}</span></div>
+            ${typeof f.score === 'number' ? `<span class="fsc" style="background:${scoreCol(f.score)}">${f.score}</span>` : ''}</div>
+          <div class="rmac"><span><b>${eVal(f.fixed.kcal).toLocaleString('en-AU')}</b> ${eUnit()}</span><span style="color:var(--pro)"><b>${Math.round(f.fixed.p)}g</b> protein</span><span style="color:var(--carb)"><b>${Math.round(f.fixed.c)}g</b> carbs</span><span style="color:var(--fat)"><b>${Math.round(f.fixed.f)}g</b> fat</span></div>
+          <div class="rfoot"><span class="muted">per serve · estimated</span><button class="rlog sgsave" data-mdsave="${esc(x.m.idMeal)}">Save</button></div>
+        </div>`; }).join('')}</div>`
+      : `<p class="empty">${prepRes.meals.length ? 'Everything found clashes with your diet or avoid list in Settings.' : `No recipes found for "${esc(prepQ)}". Try a main ingredient like chicken, beef, salmon, lentils or pasta.`}</p>`;
+  }
+  return `<div class="card prepbox">
+      <b>What do you want to meal prep?</b>
+      <form id="prepForm" class="prepform" autocomplete="off"><input class="field" id="prepQ" enterkeyhint="search" placeholder="e.g. high protein chicken, beef curry, lentils" value="${esc(prepQ)}"><button class="btn primary" id="prepGo" type="submit" aria-label="Search">Search</button></form>
+      ${prepRes || prepBusy || prepErr ? '' : `<div class="chips" id="prepChips">${['High protein chicken', 'Beef', 'Salmon', 'Vegetarian', 'Curry', 'Pasta', 'Low carb', 'Breakfast'].map(c => `<span class="chip" data-q="${c}">${c}</span>`).join('')}</div>`}
+      <p class="muted" style="margin-top:8px;font-size:12.5px">Thousands of recipes from TheMealDB. Calories and macros are estimated from the ingredients.</p>
+    </div>
+    ${body}${prepRes || prepBusy ? `<button class="btn plain" id="prepClear" style="margin:4px 0 14px">${prepBusy ? 'Cancel' : 'Back to quick ideas'}</button>` : ''}`;
+}
+async function runPrep(q){
+  prepQ = q.trim(); if (!prepQ) return;
+  prepBusy = true; prepErr = ''; prepRes = null; renderRecipes();
+  const mine = ++runPrep.seq;
+  try{
+    const res = await mealdbSearch(prepQ);
+    if (mine !== runPrep.seq) return;
+    prepRes = res;
+  }catch(e){
+    if (mine !== runPrep.seq) return;
+    prepErr = navigator.onLine === false ? 'You\'re offline — recipe search needs internet.' : 'Couldn\'t reach the recipe database. Try again in a moment.';
+  }
+  prepBusy = false; renderRecipes();
+}
+runPrep.seq = 0;
+function findPrep(id){ const c = mealdbStore(); const m = c.m[id] && c.m[id].d || (prepRes && prepRes.meals.find(x => x.idMeal === id)); return m || null; }
+function savePrep(x){
+  const R = recipes(), ex = Object.values(R).find(r => r.fromMealdb === x.m.idMeal && r.serves === x.r.serves);
+  if (ex) return ex.id;
+  const rec = {id: uid(), name: x.r.name, serves: x.r.serves, items: x.r.items, notes: x.r.notes, fav: false, updated: Date.now(), fromMealdb: x.m.idMeal};
+  R[rec.id] = rec; saveRecipes(R); return rec.id;
+}
+function openPrep(id, serves){
+  const m = findPrep(id); if (!m) return;
+  const x = mealRecipe(m, serves), f = x.f, n = x.r.serves;
+  sheet(`${m.strMealThumb ? `<img class="mdhero" src="${esc(m.strMealThumb)}" alt="">` : ''}
+    <div class="rdh"><h2 class="notr">${esc(m.strMeal)}</h2></div>
+    <p class="muted notr">${esc([m.strArea, m.strCategory].filter(Boolean).join(' · '))}</p>
+    <label class="lbl">Meal prep — how many serves?</label>
+    <div class="stepper"><button id="mdMinus" aria-label="Fewer serves">−</button><input class="field" id="mdServes" inputmode="numeric" value="${n}"><button id="mdPlus" aria-label="More serves">+</button></div>
+    <p class="muted" style="margin-top:6px">Whole recipe ≈ ${eFmt(x.total)}. Per serve:</p>
+    <div class="rdsum"><div><b>${eVal(f.fixed.kcal).toLocaleString('en-AU')}</b><span>${eUnit()}</span></div><div><b style="color:var(--pro)">${Math.round(f.fixed.p)}g</b><span>protein</span></div><div><b style="color:var(--carb)">${Math.round(f.fixed.c)}g</b><span>carbs</span></div><div><b style="color:var(--fat)">${Math.round(f.fixed.f)}g</b><span>fat</span></div>
+      ${typeof f.score === 'number' ? `<div><b style="color:${scoreCol(f.score)}">${f.score}</b><span>health</span></div>` : ''}</div>
+    <div class="nbox" id="mdNut">${nutTabs('md')}</div>
+    <label class="lbl">Ingredients · whole recipe</label>
+    <div class="rings">${x.list.map(it => `<div class="ri"><div class="t"><b class="notr">${esc(it.raw)}</b><span class="notr">${esc(it.measure || '')}${it.qty ? ` · ≈${it.qty}g` : ''}</span></div><span class="k">${it.qty && it.food.per100.kcal ? eVal(it.food.per100.kcal * it.qty / 100) : '—'}</span></div>`).join('')}
+      ${x.missing.map(t => `<div class="ri"><div class="t"><b class="notr">${esc(t)}</b><span>not in the nutrition table — not counted</span></div><span class="k">?</span></div>`).join('')}</div>
+    <label class="lbl">Method</label><ol class="mdsteps">${x.steps.map(t => `<li class="notr">${esc(t)}</li>`).join('')}</ol>
+    <p class="muted" style="margin-top:10px;font-size:12.5px">Recipe from TheMealDB${m.strSource ? ` · <a href="${esc(m.strSource)}" target="_blank" rel="noopener">original</a>` : ''}${m.strYoutube ? ` · <a href="${esc(m.strYoutube)}" target="_blank" rel="noopener">video</a>` : ''}. Nutrition is an estimate from typical values — adjust amounts after saving if you need it exact.</p>
+    <button class="btn primary" id="mdSave" style="margin-top:14px">Save as meal prep (${n} serves)</button>
+    <button class="btn ghost" id="mdLog" style="margin-top:8px">Add a serve to today</button>
+    <button class="btn plain" id="mdClose" style="margin-top:8px">Close</button>`, s => {
+    const nb = s.querySelector('#mdNut'), v = Object.assign({}, f.fixed);
+    nb.querySelector('[data-p="mac"]').innerHTML = macroRows(v); nb.querySelector('[data-p="more"]').innerHTML = microRows(v, 'food');
+    bindTabs(nb);
+    const set = k => { const sc = s.closest('.sheet') || s; const top = sc.scrollTop; openPrep(id, Math.max(1, Math.min(30, k))); const s2 = document.querySelector('#modal .sheet'); if (s2) s2.scrollTop = top; };
+    s.querySelector('#mdMinus').onclick = () => set(n - 1);
+    s.querySelector('#mdPlus').onclick = () => set(n + 1);
+    s.querySelector('#mdServes').onchange = e => set(Math.round(num(e.target.value) || n));
+    s.querySelector('#mdClose').onclick = close;
+    s.querySelector('#mdLog').onclick = () => openAmount(recipeFood(x.r), mealNow(), true);
+    s.querySelector('#mdSave').onclick = () => { const rid = savePrep(x); renderRecipes(); toast('Saved to your recipes'); openRecipe(rid); };
+  });
+}
+function bindPrep(el){
+  const f = el.querySelector('#prepForm'); if (!f) return;
+  f.onsubmit = ev => { ev.preventDefault(); const v = el.querySelector('#prepQ').value; if (v.trim()) runPrep(v); else toast('Type what you want to cook'); };
+  el.querySelectorAll('#prepChips .chip').forEach(c => c.onclick = () => runPrep(c.dataset.q));
+  const cl = el.querySelector('#prepClear'); if (cl) cl.onclick = () => { runPrep.seq++; prepRes = null; prepBusy = false; prepErr = ''; prepQ = ''; renderRecipes(); };
+  el.querySelectorAll('.mdcard').forEach(c => c.onclick = ev => {
+    const sv = ev.target.closest('[data-mdsave]');
+    if (sv){ const m = findPrep(sv.dataset.mdsave); if (!m) return; const x = mealRecipe(m), had = Object.values(recipes()).some(r => r.fromMealdb === m.idMeal); savePrep(x); toast(had ? 'Already in your recipes' : 'Saved to your recipes'); renderRecipes(); return; }
+    openPrep(c.dataset.md);
+  });
+}
+
 // ---------------- recipes: list view ----------------
 let recTab = 'all', draft = null;
 function renderRecipes(){
@@ -1059,7 +1457,7 @@ function renderRecipes(){
   <p class="tdsub">Save meals you make often, then log them in one tap or let them add themselves.</p>
   ${tipCard('recipes', 'Tap <b>+</b> to build a recipe from scanned foods, fruit & veg or your own numbers. Star your favourites, and open a recipe to <b>make it a habit</b> so it adds itself.')}
   <div class="useg wide" id="rTabs"><button data-t="all" class="${recTab === 'all' ? 'on' : ''}">All</button><button data-t="sug" class="${recTab === 'sug' ? 'on' : ''}">Ideas</button><button data-t="fav" class="${recTab === 'fav' ? 'on' : ''}">Favourites</button><button data-t="hab" class="${recTab === 'hab' ? 'on' : ''}">Habits${H.length ? ` · ${H.length}` : ''}</button></div>
-  ${recTab === 'sug' ? suggestionsHtml() : recTab === 'hab' ? habitsList(H) : list.length ? `<div class="rlist">${list.map(r => { const f = recipeFood(r), h = habitFor(r.id);
+  ${recTab === 'sug' ? prepHtml() + (prepRes || prepBusy || prepErr ? '' : suggestionsHtml()) : recTab === 'hab' ? habitsList(H) : list.length ? `<div class="rlist">${list.map(r => { const f = recipeFood(r), h = habitFor(r.id);
     return `<div class="card rcard" data-id="${esc(r.id)}" role="button" tabindex="0">
       <div class="rtop"><div class="t"><b class="notr">${esc(r.name)}</b><span>${r.serves} serve${r.serves > 1 ? 's' : ''} · ${(r.items || []).length} ingredient${(r.items || []).length === 1 ? '' : 's'}</span></div>
         ${typeof f.score === 'number' ? `<span class="fsc" style="background:${scoreCol(f.score)}">${f.score}</span>` : ''}
@@ -1074,8 +1472,8 @@ function renderRecipes(){
   $('#rNew').onclick = nw; const n2 = $('#rNew2'); if (n2) n2.onclick = nw;
   const ri = $('#rIdeas'); if (ri) ri.onclick = () => { recTab = 'sug'; renderRecipes(); };
   el.querySelectorAll('#rTabs button').forEach(b => b.onclick = () => { recTab = b.dataset.t; renderRecipes(); });
-  if (recTab === 'sug') bindSuggestions(el);
-  el.querySelectorAll('.rcard:not(.sgcard)').forEach(c => c.onclick = ev => {
+  if (recTab === 'sug'){ bindPrep(el); bindSuggestions(el); }
+  el.querySelectorAll('.rcard:not(.sgcard):not(.mdcard)').forEach(c => c.onclick = ev => {
     const fv = ev.target.closest('[data-fav]'), lg = ev.target.closest('[data-log]');
     if (fv){ const R2 = recipes(); R2[fv.dataset.fav].fav = !R2[fv.dataset.fav].fav; saveRecipes(R2); renderRecipes(); toast(R2[fv.dataset.fav].fav ? 'Added to favourites' : 'Removed from favourites'); return; }
     if (lg){ openAmount(recipeFood(recipes()[lg.dataset.log]), mealNow(), true); return; }
