@@ -51,6 +51,16 @@ function goal(){
   const kcal = g.kcal && !g.kcalAuto ? g.kcal : DEFAULT_KCAL;
   return Object.assign({}, g, {kcal, fibre: g.fibre || 25, macroMode: g.macroMode || 'auto', isDefault: !g.kcal || !!g.kcalAuto}, macrosFor(kcal, g));
 }
+// Mifflin–St Jeor: daily kcal from a profile {sex, age, h, w, act, aim}
+function kcalFrom(pr){
+  if (!pr || !pr.sex || !pr.age || !pr.h || !pr.w) return null;
+  const bmr = 10 * pr.w + 6.25 * pr.h - 5 * pr.age + (pr.sex === 'm' ? 5 : -161);
+  const tdee = bmr * +(pr.act || 1.375);
+  const floor = pr.sex === 'm' ? 1500 : 1200;
+  let kcal = Math.round((tdee + +(pr.aim || 0)) / 10) * 10, floored = false;
+  if (kcal < floor){ kcal = floor; floored = true; }
+  return {kcal, bmr: Math.round(bmr), tdee: Math.round(tdee), floored};
+}
 function saveGoal(patch){ store.set(K_GOAL, Object.assign({}, store.get(K_GOAL, null) || {}, patch)); }
 const log = () => store.get(K_LOG, {});
 const dayEntries = k => log()[k] || [];
@@ -329,6 +339,7 @@ const kfmt = v => { v = eVal(v); return v >= 1000 ? (Math.round(v / 100) / 10) +
 // ---------------- Today ----------------
 let ndUnit = 'g';
 function render(){
+  renderBody();
   const el = $('#v-cal'); if (!el) return;
   if (day > today()) day = today();
   const auto = runHabits();
@@ -692,16 +703,16 @@ function openGoal(){
     <button class="btn plain" id="gClose" style="margin-top:8px">Cancel</button>`, s => {
     let sex = pr.sex || null;
     const calc = () => {
-      const own = num(s.querySelector('#gOwn').value);
-      if (own){ const kcal = unit() === 'kj' ? own / KJ : own; return {kcal: Math.round(kcal), manual: true}; }
       const age = num(s.querySelector('#gAge').value), h = num(s.querySelector('#gH').value), w = num(s.querySelector('#gW').value);
-      if (!sex || !age || !h || !w) return null;
-      const bmr = 10 * w + 6.25 * h - 5 * age + (sex === 'm' ? 5 : -161);
-      const tdee = bmr * +s.querySelector('#gAct').value;
-      const floor = sex === 'm' ? 1500 : 1200;
-      let kcal = Math.round((tdee + +s.querySelector('#gAim').value) / 10) * 10, floored = false;
-      if (kcal < floor){ kcal = floor; floored = true; }
-      return {kcal, bmr: Math.round(bmr), tdee: Math.round(tdee), floored, w, profile: {sex, age, h, w, act: s.querySelector('#gAct').value, aim: s.querySelector('#gAim').value}};
+      const profile = {sex, age, h, w, act: s.querySelector('#gAct').value, aim: s.querySelector('#gAim').value};
+      const own = num(s.querySelector('#gOwn').value);
+      if (own){   // your own number — still keep the body details you typed
+        const kcal = unit() === 'kj' ? own / KJ : own, keep = Object.assign({}, pr);
+        for (const k in profile) if (profile[k] != null && profile[k] !== '') keep[k] = profile[k];
+        return {kcal: Math.round(kcal), manual: true, profile: keep};
+      }
+      const c = kcalFrom(profile); if (!c) return null;
+      return Object.assign(c, {w, profile});
     };
     const out = () => {
       const c = calc(), o = s.querySelector('#gOut');
@@ -789,6 +800,55 @@ function openMacros(){
   });
 }
 
+// ---------------- Settings: calories, macros & body ----------------
+function renderBody(){
+  const el = $('#bodyCard'); if (!el) return;
+  const g = goal(), pr = (store.get(K_GOAL, null) || {}).profile || {};
+  const mode = g.macroMode === 'grams' ? 'your own grams' : g.macroMode === 'pct' ? 'your own % split' : 'auto';
+  const kind = g.isDefault ? 'General adult target' : g.manual ? 'Your own number' : 'Worked out from your details';
+  el.innerHTML = `<h2>🎯 Calories, macros & body</h2>
+    <p class="muted">Your daily targets on the Today page. Saved on this phone only.</p>
+    <div class="bsum">
+      <div class="bk"><b>${eVal(g.kcal).toLocaleString('en-AU')}</b><span>${eUnit()} a day</span></div>
+      <div><b style="color:var(--pro)">${g.protein}g</b><span>protein</span></div>
+      <div><b style="color:var(--carb)">${g.carbs}g</b><span>carbs</span></div>
+      <div><b style="color:var(--fat)">${g.fat}g</b><span>fat</span></div>
+    </div>
+    <p class="muted" style="margin-top:8px">${kind} · macros: ${mode}</p>
+    <div class="ngrid3 bgrid">
+      <div><span class="muted">Weight kg</span><input class="field" id="bW" inputmode="decimal" placeholder="—" value="${esc(pr.w || '')}"></div>
+      <div><span class="muted">Height cm</span><input class="field" id="bH" inputmode="decimal" placeholder="—" value="${esc(pr.h || '')}"></div>
+      <div><span class="muted">Age</span><input class="field" id="bA" inputmode="numeric" placeholder="—" value="${esc(pr.age || '')}"></div>
+    </div>
+    <p class="muted" id="bHint" style="margin-top:6px"></p>
+    <button class="btn ghost" id="bSave" style="margin-top:10px">Save weight & height</button>
+    <div class="row" style="margin-top:8px"><button class="btn plain" id="bCal">Change calories</button><button class="btn plain" id="bMac">Change macro goals</button></div>`;
+  const read = () => ({w: num(el.querySelector('#bW').value), h: num(el.querySelector('#bH').value), age: num(el.querySelector('#bA').value)});
+  const hint = () => {
+    const v = read(), np = Object.assign({}, pr, v), c = kcalFrom(np), o = el.querySelector('#bHint');
+    const bmi = v.w && v.h ? v.w / Math.pow(v.h / 100, 2) : null;
+    let t = bmi ? `BMI ${r1(bmi)}. ` : '';
+    if (g.manual) t += 'Your calories stay at your own number — tap Change calories to work them out from you.';
+    else if (c) t += `Saving sets your target to ${eFmt(c.kcal)} a day${g.macroMode === 'auto' ? ', with protein from your weight' : ''}.`;
+    else if (!pr.sex) t += 'Tap Change calories and add your sex and activity to work out calories from your body.';
+    o.textContent = t;
+  };
+  el.querySelectorAll('input').forEach(i => i.oninput = hint); hint();
+  el.querySelector('#bCal').onclick = openGoal;
+  el.querySelector('#bMac').onclick = openMacros;
+  el.querySelector('#bSave').onclick = () => {
+    const v = read();
+    if (v.w != null && (v.w < 25 || v.w > 350)){ toast('Check your weight (kg)'); return; }
+    if (v.h != null && (v.h < 100 || v.h > 250)){ toast('Check your height (cm)'); return; }
+    if (v.age != null && (v.age < 13 || v.age > 110)){ toast('Check your age'); return; }
+    const np = Object.assign({}, pr); ['w', 'h', 'age'].forEach(k => { if (v[k] != null) np[k] = v[k]; else delete np[k]; });
+    const patch = {profile: np}, c = kcalFrom(np);
+    if (c && !g.manual) Object.assign(patch, {kcal: c.kcal, kcalAuto: false, manual: false});
+    saveGoal(patch); render();
+    toast(patch.kcal ? `Saved — target ${eFmt(patch.kcal)}` : 'Saved');
+  };
+}
+
 // ======================================================================
 // Recipes · habits (auto-add) · hydration
 // ======================================================================
@@ -822,6 +882,169 @@ function recipeFood(r){                 // a recipe as something that can be log
 }
 function ingText(it){ return it.qunit === 'item' ? (it.qty === 1 ? '1 serve' : `${r1(it.qty)} serves`) : qtyText(it.food && Object.assign({}, it.food, {qty: it.qty, qunit: it.qunit})); }
 
+// ---------------- recipes: suggestions from the highest-rated foods ----------------
+// Built-in staples, scored by the same analyse() as scanned food. [name, kJ, protein, carbs, sugars, fat, sat fat, fibre, sodium mg, categories, swap-in regex]
+const PANTRY = {
+  oats: ['Rolled oats', 1610, 12, 58, 1, 8.5, 1.5, 10, 4, 'breakfast-cereals,rolled-oats,whole-grain-cereals', /\b(rolled )?oats\b|porridge/],
+  yog: ['Greek yoghurt, natural', 540, 9, 4, 4, 9, 6, 0, 40, 'dairies,yogurts,greek-style-yogurts,plain-yogurts', /yog(h)?urt/],
+  milk: ['Milk, reduced fat', 210, 3.4, 5, 5, 1.4, .9, 0, 45, 'dairies,milks', /\bmilk\b/],
+  eggs: ['Eggs', 580, 12.6, .7, .4, 9.5, 3, 0, 140, 'eggs,chicken-eggs', /\beggs?\b/],
+  salmon: ['Salmon fillet', 860, 20, 0, 0, 13, 3, 0, 50, 'fishes,salmons,fatty-fishes', /salmon/],
+  chicken: ['Chicken breast', 450, 23, 0, 0, 1.5, .4, 0, 60, 'meats,poultries,chicken-breasts', /chicken breast/],
+  tuna: ['Tuna in springwater', 450, 25, 0, 0, 1, .3, 0, 300, 'fishes,tunas,canned-tunas', /tuna/],
+  rice: ['Brown rice, cooked', 470, 2.6, 23, .4, .9, .2, 1.8, 5, 'cereals-and-potatoes,brown-rices,whole-grain-rices', /brown rice/],
+  quinoa: ['Quinoa, cooked', 500, 4.4, 21, .9, 1.9, .2, 2.8, 7, 'cereals-and-potatoes,quinoa', /quinoa/],
+  lentils: ['Lentils, cooked', 480, 9, 17, 1.8, .4, .1, 7.9, 2, 'legumes,lentils', /lentils?/],
+  chickpeas: ['Chickpeas, drained', 500, 7, 15, .5, 2.5, .3, 6, 240, 'legumes,chickpeas,canned-chickpeas', /chickpeas?/],
+  blackbeans: ['Black beans, drained', 430, 7, 13, .3, .5, .1, 7, 200, 'legumes,black-beans', /black beans?|kidney beans?|mixed beans/],
+  tofu: ['Firm tofu', 600, 15, 2, .5, 8.5, 1.2, 2, 10, 'legumes,tofu,meat-alternatives', /tofu/],
+  bread: ['Wholemeal bread', 1000, 10, 40, 3, 3, .5, 7, 400, 'breads,wholemeal-breads', /wholemeal|whole ?grain bread|multigrain|sourdough/],
+  pasta: ['Wholemeal pasta, cooked', 600, 5.5, 26, .8, .9, .2, 4.5, 5, 'cereals-and-potatoes,pastas,whole-wheat-pastas', /wholemeal pasta|whole ?wheat pasta|spaghetti|penne|pasta/],
+  oil: ['Extra virgin olive oil', 3700, 0, 0, 0, 100, 14, 0, 0, 'fats,vegetable-oils,olive-oils,extra-virgin-olive-oils', /olive oil/],
+  almonds: ['Almonds', 2500, 21, 5, 4, 52, 4, 12, 1, 'nuts,almonds', /almonds?/],
+  walnuts: ['Walnuts', 2850, 15, 3, 2.6, 69, 6, 6.4, 2, 'nuts,walnuts', /walnuts?/],
+  chia: ['Chia seeds', 2040, 17, 7, 0, 31, 3.3, 34, 16, 'seeds,chia-seeds', /chia/],
+  pb: ['Peanut butter, natural', 2550, 25, 13, 5, 50, 9, 8, 5, 'nut-butters,peanut-butters', /peanut butter/],
+  feta: ['Feta', 1130, 17, .5, .5, 21, 14, 0, 1100, 'dairies,cheeses,fetas', /\bfeta\b/]
+};
+// Fruit & veg from the built-in PLU list
+const FRESH = {banana: 4011, blueberry: 4240, strawberry: 4028, raspberry: 4054, apple: 4129, kiwi: 4030, mango: 4311, spinach: 4090, kale: 4627, avocado: 4046, tomato: 4063, cucumber: 4062, capsicum: 4088, broccoli: 4060, carrot: 4560, sweetpotato: 4816, onion: 4093, garlic: 4608, ginger: 4612, lemon: 4033, lime: 4048, mushroom: 4645, zucchini: 4067, lettuce: 4640, bokchoy: 4545, pumpkin: 4759, corn: 4078, celery: 4070, beans: 4066};
+// d: 'vegan' | 'veg' | '' · gf = gluten-free · items = [key, grams for the whole recipe]
+const IDEAS = [
+  {id: 'oats', e: '🫐', name: 'Berry overnight oats', meal: 'breakfast', serves: 1, d: 'veg', items: [['oats', 50], ['yog', 100], ['milk', 100], ['blueberry', 75], ['chia', 10]], steps: ['Stir the oats, chia, yoghurt and milk together in a jar.', 'Cover and leave in the fridge overnight.', 'Top with the blueberries in the morning.']},
+  {id: 'omelette', e: '🍳', name: 'Spinach & mushroom omelette', meal: 'breakfast', serves: 1, d: 'veg', gf: true, items: [['eggs', 120], ['spinach', 40], ['mushroom', 60], ['tomato', 80], ['oil', 5]], steps: ['Cook the sliced mushrooms in the oil for 3 minutes, then wilt in the spinach.', 'Pour in the beaten eggs and cook until just set.', 'Fold and serve with the sliced tomato.']},
+  {id: 'avotoast', e: '🥑', name: 'Avocado toast with egg', meal: 'breakfast', serves: 1, d: 'veg', items: [['bread', 70], ['avocado', 60], ['eggs', 55], ['tomato', 50], ['lemon', 5]], steps: ['Toast the bread and mash the avocado with a squeeze of lemon.', 'Poach or boil the egg.', 'Pile the avocado, tomato and egg on the toast.']},
+  {id: 'smoothie', e: '🍌', name: 'Banana peanut butter smoothie', meal: 'breakfast', serves: 1, d: 'veg', items: [['banana', 120], ['milk', 250], ['pb', 15], ['oats', 20]], steps: ['Blend everything until smooth.', 'Add ice for a thicker smoothie.']},
+  {id: 'yogbowl', e: '🍓', name: 'Greek yoghurt berry bowl', meal: 'snack', serves: 1, d: 'veg', gf: true, items: [['yog', 170], ['strawberry', 80], ['blueberry', 50], ['almonds', 15]], steps: ['Spoon the yoghurt into a bowl.', 'Top with the berries and roughly chopped almonds.']},
+  {id: 'apple', e: '🍎', name: 'Apple & almonds', meal: 'snack', serves: 1, d: 'vegan', gf: true, items: [['apple', 150], ['almonds', 20]], steps: ['Slice the apple and serve with the almonds.']},
+  {id: 'quinoa', e: '🥗', name: 'Chicken & quinoa bowl', meal: 'lunch', serves: 1, d: '', gf: true, items: [['chicken', 130], ['quinoa', 150], ['spinach', 30], ['capsicum', 60], ['cucumber', 60], ['avocado', 40], ['oil', 7], ['lemon', 10]], steps: ['Grill or pan-fry the chicken and slice it.', 'Toss the quinoa, spinach, capsicum and cucumber with the oil and lemon.', 'Top with the chicken and avocado.']},
+  {id: 'tunasalad', e: '🐟', name: 'Tuna & chickpea salad', meal: 'lunch', serves: 1, d: '', gf: true, items: [['tuna', 95], ['chickpeas', 100], ['lettuce', 60], ['tomato', 80], ['cucumber', 80], ['oil', 8], ['lemon', 10]], steps: ['Chop the salad vegetables.', 'Toss with the drained tuna and chickpeas.', 'Dress with the oil and lemon.']},
+  {id: 'burrito', e: '🌯', name: 'Black bean burrito bowl', meal: 'lunch', serves: 2, d: 'vegan', gf: true, items: [['blackbeans', 240], ['rice', 300], ['corn', 120], ['tomato', 150], ['avocado', 100], ['lettuce', 60], ['onion', 40], ['lime', 15]], steps: ['Warm the beans and corn.', 'Make a quick salsa with the tomato, onion and lime.', 'Build bowls with rice, lettuce, beans, corn, salsa and avocado.']},
+  {id: 'salmon', e: '🍠', name: 'Salmon, sweet potato & greens', meal: 'dinner', serves: 1, d: '', gf: true, items: [['salmon', 150], ['sweetpotato', 200], ['broccoli', 120], ['oil', 5], ['lemon', 10]], steps: ['Roast the sweet potato wedges with the oil at 200°C for 25 minutes.', 'Add the salmon for the last 12 minutes.', 'Steam the broccoli and serve with lemon.']},
+  {id: 'soup', e: '🥣', name: 'Lentil & vegetable soup', meal: 'dinner', serves: 4, d: 'vegan', gf: true, items: [['lentils', 400], ['carrot', 150], ['celery', 100], ['onion', 150], ['garlic', 10], ['tomato', 300], ['spinach', 60], ['oil', 10]], steps: ['Soften the onion, carrot, celery and garlic in the oil.', 'Add the tomato, lentils and 1L of water and simmer for 20 minutes.', 'Stir through the spinach before serving.']},
+  {id: 'curry', e: '🍛', name: 'Chickpea & sweet potato curry', meal: 'dinner', serves: 4, d: 'vegan', gf: true, items: [['chickpeas', 400], ['sweetpotato', 300], ['spinach', 100], ['onion', 150], ['garlic', 10], ['ginger', 10], ['tomato', 300], ['rice', 600], ['oil', 15]], steps: ['Fry the onion, garlic and ginger in the oil with curry spices.', 'Add the sweet potato, tomato and chickpeas and simmer for 20 minutes.', 'Stir in the spinach and serve with the rice.']},
+  {id: 'stirfry', e: '🥢', name: 'Tofu & veg stir-fry', meal: 'dinner', serves: 2, d: 'vegan', items: [['tofu', 300], ['broccoli', 200], ['capsicum', 150], ['bokchoy', 150], ['carrot', 100], ['garlic', 10], ['ginger', 10], ['rice', 400], ['oil', 10]], steps: ['Brown the cubed tofu in the oil and set aside.', 'Stir-fry the vegetables with the garlic and ginger.', 'Toss the tofu back in and serve over the rice.']},
+  {id: 'pasta', e: '🍝', name: 'Veggie wholemeal pasta', meal: 'dinner', serves: 2, d: 'veg', items: [['pasta', 400], ['zucchini', 200], ['tomato', 300], ['mushroom', 150], ['spinach', 80], ['garlic', 10], ['oil', 15], ['feta', 40]], steps: ['Cook the pasta.', 'Fry the garlic, zucchini and mushroom in the oil, then add the tomato and simmer.', 'Toss with the pasta and spinach and crumble over the feta.']},
+  {id: 'traybake', e: '🍗', name: 'Chicken & vegetable tray bake', meal: 'dinner', serves: 4, d: '', gf: true, items: [['chicken', 500], ['pumpkin', 400], ['zucchini', 200], ['capsicum', 200], ['onion', 150], ['oil', 20]], steps: ['Chop everything into similar-sized pieces and toss with the oil.', 'Roast at 200°C for 35–40 minutes, turning once.']}
+];
+let baseFoods = null, sugMeal = 'all';
+function ideaFood(key){             // one built-in ingredient as a loggable food (scored the same way as a scan)
+  if (!baseFoods) baseFoods = {};
+  if (baseFoods[key]) return baseFoods[key];
+  let p = null, sw = null;
+  if (PANTRY[key]){
+    const [name, kj, pr, c, sug, f, sat, fib, na, cats] = PANTRY[key]; sw = PANTRY[key][10];
+    p = {code: '', product_name: name, brands: '', nova_group: 1, nutriments: {'energy-kj_100g': kj, proteins_100g: pr, carbohydrates_100g: c, sugars_100g: sug, fat_100g: f, 'saturated-fat_100g': sat, fiber_100g: fib, sodium_100g: na / 1000},
+      ingredients_text: name.toLowerCase(), ingredients: [{text: name.toLowerCase()}], categories_tags: cats.split(',').map(x => 'en:' + x), labels_tags: [], packaging_tags: []};
+  } else if (FRESH[key] && window.FSProduce){
+    p = FSProduce.build(FRESH[key]); if (p) sw = new RegExp('\\b' + p.product_name.toLowerCase().split(' — ')[0].replace(/(ies|es|s)$/, '') + '(e?s|ies)?\\b');
+  }
+  if (!p) return null;
+  let A = null; try{ A = window.FSApp && FSApp.analyse ? FSApp.analyse(p) : null; }catch(e){}
+  const n = p.nutriments, N = A && A.N && A.N.kj != null ? A.N : {kj: n['energy-kj_100g'], protein: n.proteins_100g, carbs: n.carbohydrates_100g, fat: n.fat_100g, sugar: n.sugars_100g, sat: n['saturated-fat_100g'], fibre: n.fiber_100g, sodium: n.sodium_100g * 1000};
+  const food = foodFrom({name: p.product_name.split(' — ')[0], brand: '', code: '', score: A ? A.score : null, N, nutriments: n, produce: !!p._produce, cats: p.categories_tags, ing: p.ingredients_text});
+  if (food){ food.key0 = key; food.sw = sw; food.emoji = p._produce ? p._produce.emoji : ''; }
+  return baseFoods[key] = food;
+}
+function topFoods(){                // your own highest-rated foods (logged or scanned with nutrition), best first
+  const seen = new Set();
+  return store.get(K_RECENT, []).filter(f => f && f.per100 && !f.fixed && !f.recipeId && typeof f.score === 'number' && f.score >= 70 && f.per100.kcal > 0)
+    .filter(f => { const k = f.code || f.name; if (seen.has(k)) return false; seen.add(k); return true; })
+    .sort((a, b) => b.score - a.score);
+}
+function dietOk(idea, me){
+  const D = me.diets || [], avoid = String(me.avoid || '').toLowerCase().split(/[,;]+/).map(x => x.trim().replace(/s$/, '')).filter(x => x.length > 2);
+  if (D.includes('Vegan') && idea.d !== 'vegan') return false;
+  if (D.includes('Vegetarian') && !idea.d) return false;
+  if (D.includes('Gluten-free') && !idea.gf) return false;
+  if (avoid.length && idea.items.some(([k]) => { const f = ideaFood(k); return f && avoid.some(a => f.name.toLowerCase().includes(a) || (a === 'dairy' && /yog|milk|feta/.test(k)) || (a === 'peanut' && k === 'pb') || (a === 'nut' && /almond|walnut|pb/.test(k)) || (a === 'egg' && k === 'eggs') || (a === 'fish' && /salmon|tuna/.test(k))); })) return false;
+  return true;
+}
+function buildIdea(idea, mine){     // swap in your own top-rated foods where they fit
+  const used = [];
+  const items = idea.items.map(([k, g]) => {
+    const base = ideaFood(k); if (!base) return null;
+    let food = base;
+    if (base.sw){
+      const m = mine.find(f => base.sw.test(f.name.toLowerCase()) && !/chocolate|choc\b|biscuit|cookie|\bbar\b|cake|lolly|drink|milk ?shake|flavou?r/i.test(f.name)
+        && f.per100.kcal > base.per100.kcal / 2.5 && f.per100.kcal < base.per100.kcal * 2.5 && (base.score == null || f.score >= base.score - 10) && !used.some(u => u.code === f.code && u.name === f.name));
+      if (m){ food = cleanFood(m); used.push(m); }
+    }
+    return {food: Object.assign(cleanFood(food), {sw: undefined, key0: undefined}), qty: g, qunit: 'g', emoji: base.emoji};
+  }).filter(Boolean);
+  const r = {id: 'idea-' + idea.id, name: idea.name, serves: idea.serves, items, notes: idea.steps.map((t, i) => `${i + 1}. ${t}`).join('\n')};
+  const f = recipeFood(r), sp = items.map(it => it.food.score).filter(x => typeof x === 'number');
+  return Object.assign({idea, r, f, used, low: sp.length ? Math.min(...sp) : null});
+}
+function suggestions(){
+  const me = store.get('fs_me', {}), mine = topFoods(), D = me.diets || [];
+  const all = IDEAS.map(i => buildIdea(i, mine)).filter(x => x.r.items.length);
+  let ok = all.filter(x => dietOk(x.idea, me)), filtered = ok.length < all.length;
+  if (!ok.length){ ok = all; filtered = false; }
+  const pro = D.includes('High protein'), lc = D.includes('Low carb');
+  const rank = x => (x.f.score || 0) + x.used.length * 4 + (pro ? x.f.fixed.p * 4 * 100 / Math.max(1, x.f.fixed.kcal) / 2 : 0) - (lc ? x.f.fixed.c * 4 * 100 / Math.max(1, x.f.fixed.kcal) / 3 : 0);
+  ok.sort((a, b) => rank(b) - rank(a));
+  return {list: ok, mine, filtered};
+}
+function suggestionsHtml(){
+  let S; try{ S = suggestions(); }catch(e){ return `<div class="card rempty"><b>Suggestions aren't ready</b><p class="muted">Open the Scan tab once, then come back.</p></div>`; }
+  const list = S.list.filter(x => sugMeal === 'all' || x.idea.meal === sugMeal);
+  // the highest-rated ingredients behind these ideas
+  const ing = new Map();
+  S.list.forEach(x => x.r.items.forEach(it => { const k = it.food.name; if (typeof it.food.score === 'number' && !ing.has(k)) ing.set(k, {n: k, s: it.food.score, mine: x.used.some(u => u.name === k)}); }));
+  const top = [...ing.values()].sort((a, b) => (b.mine - a.mine) || b.s - a.s).slice(0, 10);
+  return `<p class="muted" style="margin:0 2px 10px">Meal ideas built from the highest-rated foods in HealthierSlop${S.mine.length ? ' — your own top-rated foods are swapped in where they fit' : ''}. Save one to make it yours, or log it straight away.</p>
+    ${top.length ? `<div class="card sgtop"><b>Top-rated ingredients</b><div class="sgchips">${top.map(t => `<span class="sgchip${t.mine ? ' mine' : ''}"><i style="background:${scoreCol(t.s)}">${t.s}</i><span class="notr">${esc(t.n)}</span></span>`).join('')}</div>${S.mine.length ? '' : '<p class="muted" style="margin-top:8px">Log foods that score 70+ and they\'ll show up in these ideas.</p>'}</div>` : ''}
+    <div class="chips sgmeal" id="sgMeal">${[['all', 'All'], ...MEALS].map(([k, n]) => `<span class="chip${sugMeal === k ? ' on' : ''}" data-m="${k}">${n}</span>`).join('')}</div>
+    ${S.filtered ? '<p class="muted" style="margin:6px 2px 0">Matching your diet & avoid list in Settings.</p>' : ''}
+    <div class="rlist" style="margin-top:10px">${list.map(x => { const f = x.f;
+      return `<div class="card rcard sgcard" data-sg="${esc(x.idea.id)}" role="button" tabindex="0">
+        <div class="rtop"><span class="sge">${x.idea.e}</span><div class="t"><b>${esc(x.idea.name)}</b><span>${esc(MEAL_NAME[x.idea.meal])} · ${x.r.serves} serve${x.r.serves > 1 ? 's' : ''} · ${x.r.items.length} ingredients</span></div>
+          ${typeof f.score === 'number' ? `<span class="fsc" style="background:${scoreCol(f.score)}">${f.score}</span>` : ''}</div>
+        <div class="rmac"><span><b>${eVal(f.fixed.kcal).toLocaleString('en-AU')}</b> ${eUnit()}</span><span style="color:var(--pro)"><b>${Math.round(f.fixed.p)}g</b> protein</span><span style="color:var(--carb)"><b>${Math.round(f.fixed.c)}g</b> carbs</span><span style="color:var(--fat)"><b>${Math.round(f.fixed.f)}g</b> fat</span></div>
+        ${x.used.length ? `<p class="sgmine">★ Uses your <span class="notr">${esc(x.used.map(u => u.name).join(', '))}</span></p>` : ''}
+        <div class="rfoot"><span class="muted">per serve</span><button class="rlog sgsave" data-save="${esc(x.idea.id)}">Save</button><button class="rlog" data-slog="${esc(x.idea.id)}">${ICON_PLUS}Log</button></div>
+      </div>`; }).join('') || '<div class="card rempty"><b>No ideas for this meal</b><p class="muted">Try another meal.</p></div>'}</div>`;
+}
+function saveIdea(x){
+  const R = recipes(), ex = Object.values(R).find(r => r.fromIdea === x.idea.id);
+  if (ex) return ex.id;
+  const rec = {id: uid(), name: x.r.name, serves: x.r.serves, items: x.r.items.map(it => ({food: it.food, qty: it.qty, qunit: it.qunit})), notes: x.r.notes, fav: false, updated: Date.now(), fromIdea: x.idea.id};
+  R[rec.id] = rec; saveRecipes(R); return rec.id;
+}
+function openIdea(id){
+  const x = suggestions().list.find(y => y.idea.id === id) || IDEAS.filter(i => i.id === id).map(i => buildIdea(i, topFoods()))[0]; if (!x) return;
+  const f = x.f, saved = Object.values(recipes()).find(r => r.fromIdea === id);
+  sheet(`<div class="rdh"><h2>${x.idea.e} ${esc(x.idea.name)}</h2></div>
+    <p class="muted">${x.r.serves} serve${x.r.serves > 1 ? 's' : ''} · nutrition per serve · ${esc(MEAL_NAME[x.idea.meal])}</p>
+    <div class="rdsum"><div><b>${eVal(f.fixed.kcal).toLocaleString('en-AU')}</b><span>${eUnit()}</span></div><div><b style="color:var(--pro)">${Math.round(f.fixed.p)}g</b><span>protein</span></div><div><b style="color:var(--carb)">${Math.round(f.fixed.c)}g</b><span>carbs</span></div><div><b style="color:var(--fat)">${Math.round(f.fixed.f)}g</b><span>fat</span></div>
+      ${typeof f.score === 'number' ? `<div><b style="color:${scoreCol(f.score)}">${f.score}</b><span>health</span></div>` : ''}</div>
+    <div class="nbox" id="sgNut">${nutTabs('sg')}</div>
+    <label class="lbl">Ingredients · for the whole recipe</label>
+    <div class="rings">${x.r.items.map(it => `<div class="ri"><div class="t"><b class="notr">${it.emoji ? it.emoji + ' ' : ''}${esc(it.food.name)}</b><span class="notr">${esc(ingText(it))}${x.used.some(u => u.name === it.food.name) ? ' · ★ your food' : ''}</span></div>${typeof it.food.score === 'number' ? `<span class="fsc sm" style="background:${scoreCol(it.food.score)}">${it.food.score}</span>` : ''}</div>`).join('')}</div>
+    <label class="lbl">Method</label><p class="rnotes">${esc(x.r.notes)}</p>
+    <button class="btn primary" id="sgLog" style="margin-top:16px">Add to today</button>
+    <button class="btn ghost" id="sgSave" style="margin-top:8px">${saved ? 'Open in my recipes' : 'Save to my recipes'}</button>
+    <button class="btn plain" id="sgClose" style="margin-top:8px">Close</button>`, s => {
+    const nb = s.querySelector('#sgNut'), v = Object.assign({}, f.fixed);
+    nb.querySelector('[data-p="mac"]').innerHTML = macroRows(v); nb.querySelector('[data-p="more"]').innerHTML = microRows(v, 'food');
+    bindTabs(nb);
+    s.querySelector('#sgClose').onclick = close;
+    s.querySelector('#sgLog').onclick = () => openAmount(recipeFood(x.r), x.idea.meal, true);
+    s.querySelector('#sgSave').onclick = () => { const was = !!saved, rid = saveIdea(x); renderRecipes(); if (!was) toast('Saved to your recipes'); openRecipe(rid); };
+  });
+}
+function bindSuggestions(el){
+  el.querySelectorAll('#sgMeal .chip').forEach(c => c.onclick = () => { sugMeal = c.dataset.m; renderRecipes(); });
+  el.querySelectorAll('.sgcard').forEach(c => c.onclick = ev => {
+    const sv = ev.target.closest('[data-save]'), lg = ev.target.closest('[data-slog]');
+    const x = sv || lg ? suggestions().list.find(y => y.idea.id === (sv || lg).dataset[sv ? 'save' : 'slog']) : null;
+    if (sv && x){ const had = Object.values(recipes()).some(r => r.fromIdea === x.idea.id); saveIdea(x); toast(had ? 'Already in your recipes' : 'Saved to your recipes'); renderRecipes(); return; }
+    if (lg && x){ openAmount(recipeFood(x.r), x.idea.meal, true); return; }
+    openIdea(c.dataset.sg);
+  });
+}
+
 // ---------------- recipes: list view ----------------
 let recTab = 'all', draft = null;
 function renderRecipes(){
@@ -835,8 +1058,8 @@ function renderRecipes(){
     <div class="rbtns"><button class="rb rbp" id="rNew" aria-label="New recipe">${ICON_PLUS}</button></div></div>
   <p class="tdsub">Save meals you make often, then log them in one tap or let them add themselves.</p>
   ${tipCard('recipes', 'Tap <b>+</b> to build a recipe from scanned foods, fruit & veg or your own numbers. Star your favourites, and open a recipe to <b>make it a habit</b> so it adds itself.')}
-  <div class="useg wide" id="rTabs"><button data-t="all" class="${recTab === 'all' ? 'on' : ''}">All</button><button data-t="fav" class="${recTab === 'fav' ? 'on' : ''}">Favourites</button><button data-t="hab" class="${recTab === 'hab' ? 'on' : ''}">Habits${H.length ? ` · ${H.length}` : ''}</button></div>
-  ${recTab === 'hab' ? habitsList(H) : list.length ? `<div class="rlist">${list.map(r => { const f = recipeFood(r), h = habitFor(r.id);
+  <div class="useg wide" id="rTabs"><button data-t="all" class="${recTab === 'all' ? 'on' : ''}">All</button><button data-t="sug" class="${recTab === 'sug' ? 'on' : ''}">Ideas</button><button data-t="fav" class="${recTab === 'fav' ? 'on' : ''}">Favourites</button><button data-t="hab" class="${recTab === 'hab' ? 'on' : ''}">Habits${H.length ? ` · ${H.length}` : ''}</button></div>
+  ${recTab === 'sug' ? suggestionsHtml() : recTab === 'hab' ? habitsList(H) : list.length ? `<div class="rlist">${list.map(r => { const f = recipeFood(r), h = habitFor(r.id);
     return `<div class="card rcard" data-id="${esc(r.id)}" role="button" tabindex="0">
       <div class="rtop"><div class="t"><b class="notr">${esc(r.name)}</b><span>${r.serves} serve${r.serves > 1 ? 's' : ''} · ${(r.items || []).length} ingredient${(r.items || []).length === 1 ? '' : 's'}</span></div>
         ${typeof f.score === 'number' ? `<span class="fsc" style="background:${scoreCol(f.score)}">${f.score}</span>` : ''}
@@ -845,12 +1068,14 @@ function renderRecipes(){
       <div class="rfoot"><span class="muted">per serve</span>${h ? `<span class="hbadge">${ICON_REPEAT}${esc(habitWhen(h))}</span>` : ''}<button class="rlog" data-log="${esc(r.id)}">${ICON_PLUS}Log</button></div>
     </div>`; }).join('')}</div>`
     : `<div class="card rempty"><b>${recTab === 'fav' ? 'No favourites yet' : 'No recipes yet'}</b><p class="muted">${recTab === 'fav' ? 'Tap the star on a recipe to keep it here.' : 'Build one from foods you\'ve scanned, fruit & veg, or your own numbers. HealthierSlop works out the calories, macros and health score per serve.'}</p>
-       ${recTab === 'fav' ? '' : '<button class="btn primary" id="rNew2" style="margin-top:12px">Create a recipe</button>'}</div>`}`;
+       ${recTab === 'fav' ? '' : '<button class="btn primary" id="rNew2" style="margin-top:12px">Create a recipe</button><button class="btn plain" id="rIdeas" style="margin-top:8px">See recipe ideas</button>'}</div>`}`;
   bindTips(el);
   const nw = () => openRecipeEditor(null);
   $('#rNew').onclick = nw; const n2 = $('#rNew2'); if (n2) n2.onclick = nw;
+  const ri = $('#rIdeas'); if (ri) ri.onclick = () => { recTab = 'sug'; renderRecipes(); };
   el.querySelectorAll('#rTabs button').forEach(b => b.onclick = () => { recTab = b.dataset.t; renderRecipes(); });
-  el.querySelectorAll('.rcard').forEach(c => c.onclick = ev => {
+  if (recTab === 'sug') bindSuggestions(el);
+  el.querySelectorAll('.rcard:not(.sgcard)').forEach(c => c.onclick = ev => {
     const fv = ev.target.closest('[data-fav]'), lg = ev.target.closest('[data-log]');
     if (fv){ const R2 = recipes(); R2[fv.dataset.fav].fav = !R2[fv.dataset.fav].fav; saveRecipes(R2); renderRecipes(); toast(R2[fv.dataset.fav].fav ? 'Added to favourites' : 'Removed from favourites'); return; }
     if (lg){ openAmount(recipeFood(recipes()[lg.dataset.log]), mealNow(), true); return; }
@@ -1606,5 +1831,5 @@ function mountLog(el, info){
 }
 
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible'){ const v = $('#v-cal'); if (v && !v.classList.contains('hidden')) render(); else runHabits(); } });
-window.FSCal = {tour: () => openTour(), tourDone, render: () => render(), renderMonth: () => renderMonth(), renderRecipes: () => renderRecipes(), mountLog, open: () => { pending = null; render(); }};
+window.FSCal = {tour: () => openTour(), tourDone, render: () => render(), renderMonth: () => renderMonth(), renderRecipes: () => renderRecipes(), renderBody: () => renderBody(), mountLog, open: () => { pending = null; render(); }};
 })();
