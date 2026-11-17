@@ -24,7 +24,7 @@ function show(v){
   if (v === 'result'){ const mb = document.getElementById('mealBar'); if (mb) mb.remove(); $('#v-result').classList.remove('hasbar'); }
   if (v === 'scan'){ renderRecent(); if (!picksLoaded && typeof PICKS !== 'undefined' && PICKS) loadPicks(pickTab); }
   if (v === 'history') renderHistory();
-  if (v === 'me') renderMyProducts();
+  if (v === 'me'){ renderMyProducts(); if (window.FSCal && FSCal.renderBody) FSCal.renderBody(); }
   if (v === 'cal' && window.FSCal) FSCal.render();
   if (v === 'month' && window.FSCal) FSCal.renderMonth();
   if (v === 'recipes' && window.FSCal) FSCal.renderRecipes();
